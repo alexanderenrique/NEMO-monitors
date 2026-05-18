@@ -65,9 +65,7 @@ class MonitorViewSet(ModelViewSet):
         "name": string_filters,
         "visible": boolean_filters,
         "tool": key_filters,
-        "data_label": string_filters,
-        "data_prefix": string_filters,
-        "data_suffix": string_filters,
+        "data_unit_label": string_filters,
         "last_read": datetime_filters,
         "last_value": number_filters,
     }

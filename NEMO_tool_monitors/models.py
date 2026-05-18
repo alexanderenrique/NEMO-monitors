@@ -13,6 +13,7 @@ from django.utils import timezone
 from django.utils.safestring import mark_safe
 
 from NEMO_tool_monitors.customizations import MonitorCustomization
+from NEMO_tool_monitors.html_utils import normalize_description_links
 from NEMO.constants import CHAR_FIELD_MEDIUM_LENGTH
 from NEMO.evaluators import evaluate_boolean_expression
 from NEMO.fields import MultiEmailField
@@ -40,14 +41,11 @@ class Monitor(BaseModel):
         related_name="monitors",
         help_text="The tool that this monitor reports data for.",
     )
-    data_label = models.CharField(
-        blank=True, null=True, max_length=CHAR_FIELD_MEDIUM_LENGTH, help_text="Label for graph and table data"
-    )
-    data_prefix = models.CharField(
-        blank=True, null=True, max_length=CHAR_FIELD_MEDIUM_LENGTH, help_text="Prefix for monitor data values"
-    )
-    data_suffix = models.CharField(
-        blank=True, null=True, max_length=CHAR_FIELD_MEDIUM_LENGTH, help_text="Suffix for monitor data values"
+    data_unit_label = models.CharField(
+        blank=True,
+        null=True,
+        max_length=CHAR_FIELD_MEDIUM_LENGTH,
+        help_text="Default unit label for monitor data values (e.g. PSI, °F, %).",
     )
     description = models.TextField(
         blank=True,
@@ -59,6 +57,12 @@ class Monitor(BaseModel):
 
     def last_value_display(self):
         return display_monitor_value(self, self.last_value)
+
+    @property
+    def description_html(self):
+        if not self.description:
+            return ""
+        return mark_safe(normalize_description_links(self.description))
 
     def alert_triggered(self) -> bool:
         for alert_qs in MonitorAlert.monitor_alert_filter(monitor=self):
@@ -85,6 +89,12 @@ class MonitorColumn(BaseModel):
         help_text="Expected data type for this column.",
     )
     order = models.PositiveIntegerField(default=0, help_text="Display order on the chart and table.")
+    unit_label = models.CharField(
+        max_length=CHAR_FIELD_MEDIUM_LENGTH,
+        blank=True,
+        default="",
+        help_text="Unit label for this field on the chart y-axis (e.g. A/min, %).",
+    )
 
     def is_plottable(self) -> bool:
         return self.data_type in ("float", "integer")
@@ -335,6 +345,5 @@ def get_alert_description(time, reset: bool, condition: str, no_data: bool, valu
 def display_monitor_value(monitor: Monitor, value: float) -> str:
     if value is None:
         return ""
-    prefix = f"{monitor.data_prefix} " if monitor.data_prefix else ""
-    suffix = f" {monitor.data_suffix}" if monitor.data_suffix else ""
-    return f"{prefix}{value}{suffix}"
+    unit_label = f" {monitor.data_unit_label}" if monitor.data_unit_label else ""
+    return f"{value}{unit_label}"

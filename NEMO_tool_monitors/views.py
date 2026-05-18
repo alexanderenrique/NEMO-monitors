@@ -33,6 +33,7 @@ from NEMO.utilities import (
 )
 
 from NEMO_tool_monitors.customizations import MonitorCustomization
+from NEMO_tool_monitors.html_utils import normalize_description_links
 from NEMO_tool_monitors.models import (
     DEFAULT_DATA_ENTRY_FIELDS,
     Monitor,
@@ -54,7 +55,7 @@ def _monitor_uses_legacy_notes(monitor: Monitor) -> bool:
 def _data_entry_fields_for_form(monitor: Optional[Monitor]) -> List[dict]:
     if monitor:
         return [
-            {"name": col.name, "data_type": col.data_type}
+            {"name": col.name, "data_type": col.data_type, "unit_label": col.unit_label or ""}
             for col in monitor.columns.order_by("order", "name")
         ]
     return [{"name": name, "data_type": data_type} for name, data_type in DEFAULT_DATA_ENTRY_FIELDS]
@@ -369,11 +370,6 @@ def monitor_details(request, monitor_id, tab: str = None):
         "end": end,
         "chart_step": chart_step,
         "can_upload": _can_upload(request.user),
-        "monitor_date_formats": {
-            variable.replace("monitor_format_", ""): MonitorCustomization.get(variable)
-            for variable in MonitorCustomization.variables.keys()
-            if variable.startswith("monitor_format_")
-        },
     }
     return render(request, "NEMO_tool_monitors/monitor_data.html", dictionary)
 
@@ -432,7 +428,10 @@ def monitor_chart_data(request, monitor_id):
 
     if defined_columns:
         # Multi-column mode: group data by column
-        col_meta = [{"name": col.name, "type": col.data_type} for col in defined_columns]
+        col_meta = [
+            {"name": col.name, "type": col.data_type, "unit_label": (col.unit_label or "").strip()}
+            for col in defined_columns
+        ]
         series: dict = {col.name: {"labels": [], "data": [], "string_data": [], "ids": [], "notes": [], "created_by": [], "created_on": [], "updated_on": []} for col in defined_columns}
         # Also bucket any orphaned rows (column=None) under a blank key
         series[""] = {"labels": [], "data": [], "string_data": [], "ids": [], "notes": [], "created_by": [], "created_on": [], "updated_on": []}
@@ -458,7 +457,7 @@ def monitor_chart_data(request, monitor_id):
         if not series[""]["ids"]:
             del series[""]
         elif "" not in [c["name"] for c in col_meta]:
-            col_meta.append({"name": "", "type": "float"})
+            col_meta.append({"name": "", "type": "float", "unit_label": ""})
 
         # Determine if any data at all
         total_rows = sum(len(b["ids"]) for b in series.values())
@@ -487,7 +486,7 @@ def monitor_chart_data(request, monitor_id):
             updated_on.append(last_edit)
         return JsonResponse(
             data={
-                "columns": [{"name": "", "type": "float"}],
+                "columns": [{"name": "", "type": "float", "unit_label": (monitor.data_unit_label or "").strip()}],
                 "series": {
                     "": {
                         "labels": labels,
@@ -978,18 +977,18 @@ def _monitor_form(request, monitor: Optional[Monitor], tool: Tool):
     error = None
     if request.method == "POST":
         name = (request.POST.get("name") or "").strip()
-        data_label = (request.POST.get("data_label") or "").strip() or None
-        data_prefix = (request.POST.get("data_prefix") or "").strip() or None
-        data_suffix = (request.POST.get("data_suffix") or "").strip() or None
-        description = (request.POST.get("description") or "").strip() or None
+        data_unit_label = (request.POST.get("data_unit_label") or "").strip() or None
+        raw_description = (request.POST.get("description") or "").strip() or None
+        description = normalize_description_links(raw_description) if raw_description else None
         visible = bool(request.POST.get("visible"))
 
         # Parse column definitions submitted as parallel arrays
         col_names = request.POST.getlist("column_name[]")
         col_types = request.POST.getlist("column_type[]")
+        col_unit_labels = request.POST.getlist("column_unit_label[]")
         submitted_columns = [
-            (n.strip(), t.strip())
-            for n, t in zip(col_names, col_types)
+            (n.strip(), t.strip(), (s or "").strip())
+            for n, t, s in zip(col_names, col_types, col_unit_labels)
             if n.strip()
         ]
 
@@ -1001,18 +1000,14 @@ def _monitor_form(request, monitor: Optional[Monitor], tool: Tool):
                     name=name,
                     tool=tool,
                     visible=visible,
-                    data_label=data_label,
-                    data_prefix=data_prefix,
-                    data_suffix=data_suffix,
+                    data_unit_label=data_unit_label,
                     description=description,
                 )
                 messages.success(request, f"Created monitor '{monitor.name}'.")
             else:
                 monitor.name = name
                 monitor.visible = visible
-                monitor.data_label = data_label
-                monitor.data_prefix = data_prefix
-                monitor.data_suffix = data_suffix
+                monitor.data_unit_label = data_unit_label
                 monitor.description = description
                 monitor.save()
                 messages.success(request, f"Updated monitor '{monitor.name}'.")
@@ -1032,15 +1027,15 @@ def _monitor_form(request, monitor: Optional[Monitor], tool: Tool):
     return render(request, "NEMO_tool_monitors/monitor_form.html", dictionary)
 
 
-def _sync_monitor_columns(request, monitor: Monitor, submitted_columns: List[Tuple[str, str]]):
+def _sync_monitor_columns(request, monitor: Monitor, submitted_columns: List[Tuple[str, str, str]]):
     """
-    Sync MonitorColumn records to match submitted_columns (list of (name, data_type)).
+    Sync MonitorColumn records to match submitted_columns (list of (name, data_type, unit_label)).
     Data entry fields removed from the form are deleted; data points that referenced them become orphaned
     (column FK set to null). A warning is shown when orphaned rows exist.
     """
     valid_types = {choice[0] for choice in MonitorColumn._meta.get_field("data_type").choices}
     existing = {col.name.lower(): col for col in monitor.columns.all()}
-    submitted_names_lower = {n.lower() for n, _ in submitted_columns}
+    submitted_names_lower = {n.lower() for n, _, _ in submitted_columns}
 
     # Delete removed columns (warn if they have data)
     for lower_name, col in existing.items():
@@ -1054,15 +1049,23 @@ def _sync_monitor_columns(request, monitor: Monitor, submitted_columns: List[Tup
             col.delete()
 
     # Create or update remaining columns
-    for order, (col_name, col_type) in enumerate(submitted_columns):
+    for order, (col_name, col_type, col_unit_label) in enumerate(submitted_columns):
         if col_type not in valid_types:
             col_type = "float"
         col = existing.get(col_name.lower())
         if col:
-            if col.name != col_name or col.data_type != col_type or col.order != order:
+            if (
+                col.name != col_name
+                or col.data_type != col_type
+                or col.order != order
+                or (col.unit_label or "") != col_unit_label
+            ):
                 col.name = col_name
                 col.data_type = col_type
                 col.order = order
+                col.unit_label = col_unit_label
                 col.save()
         else:
-            MonitorColumn.objects.create(monitor=monitor, name=col_name, data_type=col_type, order=order)
+            MonitorColumn.objects.create(
+                monitor=monitor, name=col_name, data_type=col_type, order=order, unit_label=col_unit_label
+            )

@@ -87,7 +87,7 @@ class MonitorAdminForm(forms.ModelForm):
 
 class MonitorColumnInline(admin.TabularInline):
     model = MonitorColumn
-    fields = ("name", "data_type", "order")
+    fields = ("name", "data_type", "unit_label", "order")
     ordering = ("order", "name")
     verbose_name = "Data entry field"
     verbose_name_plural = "Data entry fields"
@@ -160,7 +160,7 @@ class MonitorDataAdmin(admin.ModelAdmin):
     def get_column_name(self, obj: MonitorData):
         return obj.column.name if obj.column else ""
 
-    @display(ordering="monitor__data_prefix", description="Display value")
+    @display(description="Display value")
     def get_display_value(self, obj: MonitorData):
         return obj.display_value()
 

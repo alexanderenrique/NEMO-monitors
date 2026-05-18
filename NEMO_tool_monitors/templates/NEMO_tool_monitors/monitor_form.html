@@ -38,33 +38,13 @@
                 </div>
             </div>
             <div class="form-group">
-                <label class="control-label col-md-3" for="data_label">Data label</label>
-                <div class="col-md-6">
-                    <input type="text"
-                           id="data_label"
-                           name="data_label"
-                           class="form-control"
-                           value="{{ monitor.data_label|default_if_none:'' }}" />
-                </div>
-            </div>
-            <div class="form-group">
-                <label class="control-label col-md-3" for="data_prefix">Value prefix</label>
+                <label class="control-label col-md-3" for="data_unit_label">Default unit label</label>
                 <div class="col-md-3">
                     <input type="text"
-                           id="data_prefix"
-                           name="data_prefix"
+                           id="data_unit_label"
+                           name="data_unit_label"
                            class="form-control"
-                           value="{{ monitor.data_prefix|default_if_none:'' }}" />
-                </div>
-            </div>
-            <div class="form-group">
-                <label class="control-label col-md-3" for="data_suffix">Value suffix</label>
-                <div class="col-md-3">
-                    <input type="text"
-                           id="data_suffix"
-                           name="data_suffix"
-                           class="form-control"
-                           value="{{ monitor.data_suffix|default_if_none:'' }}"
+                           value="{{ monitor.data_unit_label|default_if_none:'' }}"
                            placeholder="e.g. PSI, kHz, hrs" />
                 </div>
             </div>
@@ -75,7 +55,7 @@
                               name="description"
                               class="form-control"
                               rows="4">{{ monitor.description|default_if_none:'' }}</textarea>
-                    <span class="help-block">Shown at the top of the monitor details page. HTML is allowed (e.g. &lt;a href&gt; links).</span>
+                    <span class="help-block">Shown at the top of the monitor details page. HTML is allowed (e.g. &lt;a href&gt; links). Use a full URL (https://…) or a bare domain (google.com); bare domains are saved with https:// so they do not break on chart/data tabs.</span>
                 </div>
             </div>
             <div class="form-group">
@@ -99,9 +79,10 @@
                     <table class="table table-condensed table-bordered" id="data-entry-fields-table" style="margin-bottom: 8px;">
                         <thead>
                             <tr>
-                                <th style="width: 45%">Field name</th>
-                                <th style="width: 35%">Type</th>
-                                <th style="width: 20%"></th>
+                                <th style="width: 40%">Field name</th>
+                                <th style="width: 25%">Type</th>
+                                <th style="width: 25%">Unit label</th>
+                                <th style="width: 10%"></th>
                             </tr>
                         </thead>
                         <tbody id="data-entry-fields-body">
@@ -120,6 +101,13 @@
                                                 <option value="{{ value }}" {% if field.data_type == value %}selected{% endif %}>{{ label }}</option>
                                             {% endfor %}
                                         </select>
+                                    </td>
+                                    <td>
+                                        <input type="text"
+                                               name="column_unit_label[]"
+                                               class="form-control input-sm"
+                                               value="{{ field.unit_label|default_if_none:'' }}"
+                                               placeholder="e.g. A/min, %" />
                                     </td>
                                     <td class="text-center">
                                         <button type="button" class="btn btn-danger btn-xs js-remove-data-entry-field">Remove</button>
@@ -158,12 +146,14 @@
             return '<select name="column_type[]" class="form-control input-sm">' + opts + '</select>';
         }
 
-        function buildDataEntryFieldRow(name, type) {
+        function buildDataEntryFieldRow(name, type, unitLabel) {
             name = name || '';
             type = type || 'float';
+            unitLabel = unitLabel || '';
             return '<tr class="data-entry-field-row">'
                 + '<td><input type="text" name="column_name[]" class="form-control input-sm" value="' + name + '" placeholder="e.g. Mean" /></td>'
                 + '<td>' + buildTypeSelect(type) + '</td>'
+                + '<td><input type="text" name="column_unit_label[]" class="form-control input-sm" value="' + unitLabel + '" placeholder="e.g. A/min, %" /></td>'
                 + '<td class="text-center"><button type="button" class="btn btn-danger btn-xs js-remove-data-entry-field">Remove</button></td>'
                 + '</tr>';
         }

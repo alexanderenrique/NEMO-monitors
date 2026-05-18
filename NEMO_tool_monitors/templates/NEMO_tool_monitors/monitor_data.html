@@ -31,7 +31,7 @@
             <li class="active">{{ monitor.name }}</li>
         </ol>
         {% if monitor.description %}
-            <div class="monitor-description">{{ monitor.description|safe }}</div>
+            <div class="monitor-description">{{ monitor.description_html }}</div>
         {% endif %}
         <div class="panel-body">
             {% if messages %}
@@ -128,7 +128,7 @@
                                 <thead id="monitor-table-head">
                                     <tr class="info" style="pointer-events: none;">
                                         <th>Time</th>
-                                        <th>{{ monitor.data_label|default_if_none:'Value' }}</th>
+                                        <th>Value</th>
                                         <th>Notes</th>
                                         <th>Uploaded by</th>
                                         <th>Uploaded on</th>
@@ -376,10 +376,89 @@
 
         const monitorChart = $("#monitor-chart");
         let monitorChartObject = null;
+        const MONITOR_DATA_UNIT_LABEL = '{{ monitor.data_unit_label|default_if_none:""|escapejs }}';
+        function column_unit(col)
+        {
+            const unitLabel = (col.unit_label || '').trim();
+            if (unitLabel) {
+                return unitLabel;
+            }
+            return MONITOR_DATA_UNIT_LABEL.trim();
+        }
+
+        function y_axis_title_for_unit(unit)
+        {
+            return unit || '';
+        }
+
+        function build_chart_scales(datasets)
+        {
+            const unitToAxisId = {};
+            const unitOrder = [];
+            datasets.forEach(function(ds) {
+                const unitKey = ds._unit || '';
+                if (unitToAxisId[unitKey] === undefined) {
+                    const axisId = unitOrder.length === 0 ? 'y' : 'y' + unitOrder.length;
+                    unitToAxisId[unitKey] = axisId;
+                    unitOrder.push(unitKey);
+                }
+                ds.yAxisID = unitToAxisId[unitKey];
+            });
+
+            const scales = {
+                x: {
+                    type: 'time',
+                }
+            };
+
+            unitOrder.forEach(function(unitKey, idx) {
+                const axisId = unitToAxisId[unitKey];
+                const titleText = y_axis_title_for_unit(unitKey);
+                scales[axisId] = {
+                    type: 'linear',
+                    display: false,
+                    position: idx % 2 === 0 ? 'left' : 'right',
+                    title: {
+                        display: !!titleText,
+                        text: titleText,
+                    },
+                    grid: {
+                        drawOnChartArea: idx === 0,
+                    },
+                };
+            });
+
+            return scales;
+        }
+
+        function sync_y_axis_visibility(chart)
+        {
+            if (!chart) {
+                return;
+            }
+            const visibleAxisIds = new Set();
+            chart.data.datasets.forEach(function(ds) {
+                if (!ds.hidden) {
+                    visibleAxisIds.add(ds.yAxisID);
+                }
+            });
+            Object.keys(chart.options.scales).forEach(function(scaleId) {
+                if (scaleId === 'x') {
+                    return;
+                }
+                const scale = chart.options.scales[scaleId];
+                const hasVisible = visibleAxisIds.has(scaleId);
+                scale.display = hasVisible;
+                if (scale.title) {
+                    scale.title.display = hasVisible && !!scale.title.text;
+                }
+            });
+            chart.update();
+        }
 
         function build_datasets(data)
         {
-            // data.columns: [{name, type}, ...]
+            // data.columns: [{name, type, unit_label?}, ...]
             // data.series: {colName: {labels, data, ...}, ...}
             const columns = data.columns || [{name: '', type: 'float'}];
             const series = data.series || {'': data};
@@ -400,6 +479,7 @@
                     data: filter_every_x_point(bucket.data || []),
                     _labels: filter_every_x_point(bucket.labels || []),
                     _col_name: col.name,
+                    _unit: column_unit(col),
                     hidden: colorIdx > 1,  // only the first plottable column is visible on load
                 });
             }
@@ -423,7 +503,7 @@
                     .on('change', function() {
                         if (monitorChartObject) {
                             monitorChartObject.data.datasets[idx].hidden = !this.checked;
-                            monitorChartObject.update();
+                            sync_y_axis_visibility(monitorChartObject);
                         }
                     });
                 const label = $('<label style="margin-right:12px;font-weight:normal;cursor:pointer;"></label>')
@@ -457,6 +537,7 @@
             }
 
             const datasets = build_datasets(data);
+            const chartScales = build_chart_scales(datasets);
             update_column_toggles(datasets);
 
             let ctx = monitorChart[0].getContext("2d");
@@ -471,41 +552,17 @@
                 },
                 options:
                 {
-                    scales:
-                    {
-                        x:
-                        {
-                            type: 'time',
-                            time:
-                                {
-                                    displayFormats:
-                                        {
-                                            {% for key, value in monitor_date_formats.items %}
-                                                {% if value %}
-                                                    {{ key }}: "{{ value }}",
-                                                {% endif %}
-                                            {% endfor %}
-                                        }
-                                }
-                        },
-                        y:
-                        {
-                            title:
-                            {
-                                display: {% if monitor.data_label %}true{% else %}false{% endif %},
-                                text: '{{ monitor.data_label|default_if_none:""|escapejs }}'
-                            }
-                        }
-                    },
+                    scales: chartScales,
                     responsive: true,
-                    legend:
-                    {
-                        position: 'top'
-                    },
-                    title:
-                    {
-                        display: true,
-                        text: '{{ monitor.name|escapejs }} Chart'
+                    plugins: {
+                        legend: {
+                            display: datasets.length > 1,
+                            position: 'top',
+                        },
+                        title: {
+                            display: true,
+                            text: '{{ monitor.name|escapejs }} Chart',
+                        },
                     },
                     animation:
                     {
@@ -521,6 +578,7 @@
                     }
                 }
             });
+            sync_y_axis_visibility(monitorChartObject);
         }
 
         function escape_html(str)
@@ -531,7 +589,7 @@
         // Stores colData arrays keyed by row index for multi-column edit/delete
         let _multiColRowData = {};
 
-        const LEGACY_VALUE_LABEL = '{{ monitor.data_label|default_if_none:"Value"|escapejs }}';
+        const LEGACY_VALUE_LABEL = 'Value';
 
         function render_row_legacy(bucket, i)
         {

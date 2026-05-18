@@ -205,8 +205,7 @@
                     <thead>
                         <tr class="info">
                             <th>Name</th>
-                            <th>Last reading</th>
-                            <th>Last value</th>
+                            <th>Last monitor</th>
                             <th></th>
                         </tr>
                     </thead>
@@ -217,7 +216,6 @@
                                     <a href="{% url 'monitor_details' monitor.id %}">{{ monitor.name }}</a>
                                 </td>
                                 <td>{{ monitor.last_read|date:"SHORT_DATETIME_FORMAT"|default:"no data" }}</td>
-                                <td>{{ monitor.last_value_display|default:"-" }}</td>
                                 <td class="text-right">
                                     <a class="btn btn-default btn-xs" href="{% url 'monitor_details' monitor.id %}">View</a>
                                 </td>
