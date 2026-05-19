@@ -2,31 +2,31 @@
 {% load static %}
 {% load custom_tags_and_filters %}
 {% block extrahead %}
-    <script type="text/javascript" src="{% static 'NEMO_tool_monitors/chart.min.js' %}"></script>
-    <script type="text/javascript" src="{% static 'NEMO_tool_monitors/chartjs-adapter-moment.js' %}"></script>
-    <script type="text/javascript" src="{% static 'NEMO_tool_monitors/daterangepicker.js' %}"></script>
-    <link rel="stylesheet" type="text/css" href="{% static 'NEMO_tool_monitors/daterangepicker.css' %}" />
-    <link rel="stylesheet" type="text/css" href="{% static 'NEMO_tool_monitors/monitors.css' %}" />
+    <script type="text/javascript" src="{% static 'NEMO_monitors/chart.min.js' %}"></script>
+    <script type="text/javascript" src="{% static 'NEMO_monitors/chartjs-adapter-moment.js' %}"></script>
+    <script type="text/javascript" src="{% static 'NEMO_monitors/daterangepicker.js' %}"></script>
+    <link rel="stylesheet" type="text/css" href="{% static 'NEMO_monitors/daterangepicker.css' %}" />
+    <link rel="stylesheet" type="text/css" href="{% static 'NEMO_monitors/monitors.css' %}" />
 {% endblock %}
 {% block title %}{{ monitor.name }} data{% endblock %}
 {% block content %}
     <div class="well well-monitors-dashboard">
         <ol class="breadcrumb breadcrumb-monitors-dashboard">
             <li>
-                <a href="{% url 'tool_monitors' %}">Dashboard</a>
+                <a href="{% url 'monitors' %}">Dashboard</a>
             </li>
             {% if tool_category %}
                 {% for ancestor in tool_category.ancestors %}
                     <li>
-                        <a href="{% url 'tool_monitors_category' ancestor.path %}">{{ ancestor.name }}</a>
+                        <a href="{% url 'monitors_category' ancestor.path %}">{{ ancestor.name }}</a>
                     </li>
                 {% endfor %}
                 <li>
-                    <a href="{% url 'tool_monitors_category' tool_category.path %}">{{ tool_category.name }}</a>
+                    <a href="{% url 'monitors_category' tool_category.path %}">{{ tool_category.name }}</a>
                 </li>
             {% endif %}
             <li>
-                <a href="{% url 'tool_monitors_for_tool' monitor.tool.id %}">{{ monitor.tool.name }}</a>
+                <a href="{% url 'monitors_for_tool' monitor.tool.id %}">{{ monitor.tool.name }}</a>
             </li>
             <li class="active">{{ monitor.name }}</li>
         </ol>
@@ -314,28 +314,34 @@
             refresh_page();
         }
 
+        const daterange_presets =
+        {
+            'Last 24 hrs': [moment().subtract(1, 'days'), now_moment_date],
+            'Last 72 hrs': [moment().subtract(3, 'days'), now_moment_date],
+            'Last 7 Days': [moment().subtract(6, 'days'), now_moment_date],
+            'Last 30 Days': [moment().subtract(29, 'days'), now_moment_date],
+            'Today': [moment().startOf('day'), moment().endOf('day')],
+            'Yesterday': [moment().subtract(1, 'days').startOf('day'), moment().subtract(1, 'days').endOf('day')],
+            'This Week': [moment().startOf('week'), moment().endOf('week')],
+            'Last Week': [moment().subtract(7, 'days').startOf('week'), moment().subtract(7, 'days').endOf('week')],
+            'This Month': [moment().startOf('month'), moment().endOf('month')],
+            'Last Month': [moment().subtract(1, 'month').startOf('month'), moment().subtract(1, 'month').endOf('month')],
+            'This Year': [moment().startOf('year'), moment().endOf('year')],
+            'Last Year': [moment().subtract(1, 'year').startOf('year'), moment().subtract(1, 'year').endOf('year')],
+        };
+        {% if data_earliest_unix and data_latest_unix %}
+        daterange_presets['All Time'] = [moment.unix({{ data_earliest_unix }}).utc(), moment.unix({{ data_latest_unix }}).utc()];
+        {% endif %}
+
         let daterange_picker = $('#picker-container').daterangepicker(
         {
             alwaysShowCalendars: true,
+            linkedCalendars: false,
             showDropdowns: true,
             timePicker: true,
             timePickerIncrement: 1,
             autoUpdateInput: false,
-            ranges:
-            {
-               'Last 24 hrs': [moment().subtract(1, 'days'), now_moment_date],
-               'Last 72 hrs': [moment().subtract(3, 'days'), now_moment_date],
-               'Last 7 Days': [moment().subtract(6, 'days'), now_moment_date],
-               'Last 30 Days': [moment().subtract(29, 'days'), now_moment_date],
-               'Today': [moment().startOf('day'), moment().endOf('day')],
-               'Yesterday': [moment().subtract(1, 'days').startOf('day'), moment().subtract(1, 'days').endOf('day')],
-               'This Week': [moment().startOf('week'), moment().endOf('week')],
-               'Last Week': [moment().subtract(7, 'days').startOf('week'), moment().subtract(7, 'days').endOf('week')],
-               'This Month': [moment().startOf('month'), moment().endOf('month')],
-               'Last Month': [moment().subtract(1, 'month').startOf('month'), moment().subtract(1, 'month').endOf('month')],
-               'This Year': [moment().startOf('year'), moment().endOf('year')],
-               'Last Year': [moment().subtract(1, 'year').startOf('year'), moment().endOf('year')],
-            }
+            ranges: daterange_presets,
         }, set_dates);
 
         function get_start_end_dates()
@@ -590,6 +596,18 @@
         let _multiColRowData = {};
 
         const LEGACY_VALUE_LABEL = 'Value';
+        const MONITOR_TIME_FORMATS = ['MM/DD/YYYY HH:mm:ss', 'M/D/YYYY HH:mm:ss'];
+
+        function compare_monitor_times_desc(a, b)
+        {
+            const ma = moment(a, MONITOR_TIME_FORMATS, true);
+            const mb = moment(b, MONITOR_TIME_FORMATS, true);
+            if (ma.isValid() && mb.isValid())
+            {
+                return mb.valueOf() - ma.valueOf();
+            }
+            return b.localeCompare(a);
+        }
 
         function render_row_legacy(bucket, i)
         {
@@ -660,7 +678,7 @@
                         };
                     }
                 }
-                timeOrder.sort(function(a, b) { return b.localeCompare(a); });
+                timeOrder.sort(compare_monitor_times_desc);
 
                 // Rebuild header with one <th> per column
                 let headerHtml = '<tr class="info" style="pointer-events: none;"><th>Time</th>';
@@ -764,7 +782,7 @@
                 {
                     flatRows.push({ time: labels[i], idx: i });
                 }
-                flatRows.sort(function(a, b) { return b.time.localeCompare(a.time); });
+                flatRows.sort(function(a, b) { return compare_monitor_times_desc(a.time, b.time); });
 
                 let rows = '';
                 for (let r = 0; r < flatRows.length; r++)

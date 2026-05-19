@@ -2,14 +2,14 @@
 {% load static %}
 {% load custom_tags_and_filters %}
 {% block extrahead %}
-    <link rel="stylesheet" type="text/css" href="{% static 'NEMO_tool_monitors/monitors.css' %}" />
+    <link rel="stylesheet" type="text/css" href="{% static 'NEMO_monitors/monitors.css' %}" />
 {% endblock %}
 {% block title %}Upload monitor data{% endblock %}
 {% block content %}
     <div class="well well-monitors-dashboard">
         <ol class="breadcrumb breadcrumb-monitors-dashboard">
             <li>
-                <a href="{% url 'tool_monitors' %}">Dashboard</a>
+                <a href="{% url 'monitors' %}">Dashboard</a>
             </li>
             <li class="active">Upload data</li>
         </ol>

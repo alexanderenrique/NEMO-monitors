@@ -1,7 +1,7 @@
 {% load custom_tags_and_filters %}
 <div class="panel-body">
-    <h3 class="customization-section-title">Tool monitor data settings</h3>
-    <form method="POST" action="{% url 'customize' 'tool_monitors' %}" class="form-horizontal">
+    <h3 class="customization-section-title">Monitor data settings</h3>
+    <form method="POST" action="{% url 'customize' 'monitors' %}" class="form-horizontal">
         {% csrf_token %}
         <div class="form-group {% if errors.monitor_alert_emails %}has-error{% endif %}">
             <label class="control-label col-md-3" for="monitor_alert_emails">Monitor alert email(s)</label>

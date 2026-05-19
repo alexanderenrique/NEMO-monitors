@@ -5,7 +5,7 @@ from rest_flex_fields.serializers import FlexFieldsSerializerMixin
 from rest_framework.serializers import DateTimeField
 from rest_framework.viewsets import ReadOnlyModelViewSet
 
-from NEMO_tool_monitors.models import (
+from NEMO_monitors.models import (
     Monitor,
     MonitorAlertEmail,
     MonitorAlertLog,
@@ -32,7 +32,7 @@ class MonitorDataSerializer(FlexFieldsSerializerMixin, ModelSerializer):
         fields = "__all__"
         read_only_fields = ("created_on", "updated_on")
         expandable_fields = {
-            "monitor": "NEMO_tool_monitors.api.MonitorSerializer",
+            "monitor": "NEMO_monitors.api.MonitorSerializer",
             "created_by": "NEMO.serializers.UserSerializer",
             "updated_by": "NEMO.serializers.UserSerializer",
         }
@@ -43,7 +43,7 @@ class MonitorAlertEmailSerializer(FlexFieldsSerializerMixin, ModelSerializer):
         model = MonitorAlertEmail
         fields = "__all__"
         expandable_fields = {
-            "monitor": "NEMO_tool_monitors.api.MonitorSerializer",
+            "monitor": "NEMO_monitors.api.MonitorSerializer",
         }
 
 
@@ -52,7 +52,7 @@ class MonitorAlertLogSerializer(FlexFieldsSerializerMixin, ModelSerializer):
         model = MonitorAlertLog
         fields = "__all__"
         expandable_fields = {
-            "monitor": "NEMO_tool_monitors.api.MonitorSerializer",
+            "monitor": "NEMO_monitors.api.MonitorSerializer",
         }
 
 

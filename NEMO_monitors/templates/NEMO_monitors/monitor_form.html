@@ -6,20 +6,20 @@
     <div class="well">
         <ol class="breadcrumb">
             <li>
-                <a href="{% url 'tool_monitors' %}">Dashboard</a>
+                <a href="{% url 'monitors' %}">Dashboard</a>
             </li>
             {% if tool_category %}
                 {% for ancestor in tool_category.ancestors %}
                     <li>
-                        <a href="{% url 'tool_monitors_category' ancestor.path %}">{{ ancestor.name }}</a>
+                        <a href="{% url 'monitors_category' ancestor.path %}">{{ ancestor.name }}</a>
                     </li>
                 {% endfor %}
                 <li>
-                    <a href="{% url 'tool_monitors_category' tool_category.path %}">{{ tool_category.name }}</a>
+                    <a href="{% url 'monitors_category' tool_category.path %}">{{ tool_category.name }}</a>
                 </li>
             {% endif %}
             <li>
-                <a href="{% url 'tool_monitors_for_tool' tool.id %}">{{ tool.name }}</a>
+                <a href="{% url 'monitors_for_tool' tool.id %}">{{ tool.name }}</a>
             </li>
             <li class="active">{% if monitor %}Edit {{ monitor.name }}{% else %}New monitor{% endif %}</li>
         </ol>
@@ -126,7 +126,7 @@
                     <button class="btn btn-success" type="submit">
                         {% if monitor %}Save changes{% else %}Create monitor{% endif %}
                     </button>
-                    <a class="btn btn-default" href="{% url 'tool_monitors_for_tool' tool.id %}">Cancel</a>
+                    <a class="btn btn-default" href="{% url 'monitors_for_tool' tool.id %}">Cancel</a>
                 </div>
             </div>
         </form>

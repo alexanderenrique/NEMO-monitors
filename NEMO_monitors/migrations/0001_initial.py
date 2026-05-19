@@ -7,6 +7,7 @@ import NEMO.fields
 
 
 class Migration(migrations.Migration):
+
     initial = True
 
     dependencies = [
@@ -16,30 +17,6 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name="MonitorCategory",
-            fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                (
-                    "name",
-                    models.CharField(help_text="The name for this monitor category", max_length=255),
-                ),
-                (
-                    "parent",
-                    models.ForeignKey(
-                        blank=True,
-                        null=True,
-                        on_delete=django.db.models.deletion.SET_NULL,
-                        related_name="children",
-                        to="tool_monitors.monitorcategory",
-                    ),
-                ),
-            ],
-            options={
-                "verbose_name_plural": "Monitor categories",
-                "ordering": ["name"],
-            },
-        ),
-        migrations.CreateModel(
             name="Monitor",
             fields=[
                 ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
@@ -47,45 +24,28 @@ class Migration(migrations.Migration):
                 (
                     "visible",
                     models.BooleanField(
-                        default=True,
-                        help_text="Specifies whether this monitor is visible in the monitor dashboard",
+                        default=True, help_text="Specifies whether this monitor is visible in the monitor dashboard"
                     ),
                 ),
                 (
-                    "data_label",
+                    "data_unit_label",
                     models.CharField(
-                        blank=True, help_text="Label for graph and table data", max_length=255, null=True
-                    ),
-                ),
-                (
-                    "data_prefix",
-                    models.CharField(
-                        blank=True, help_text="Prefix for monitor data values", max_length=255, null=True
-                    ),
-                ),
-                (
-                    "data_suffix",
-                    models.CharField(
-                        blank=True, help_text="Suffix for monitor data values", max_length=255, null=True
+                        blank=True,
+                        help_text="Default unit label for monitor data values (e.g. PSI, °F, %).",
+                        max_length=255,
+                        null=True,
                     ),
                 ),
                 (
                     "description",
                     models.TextField(
-                        blank=True, help_text="Optional description of what this monitor tracks.", null=True
+                        blank=True,
+                        help_text="Optional description of what this monitor tracks. HTML may be used (for example for links); shown at the top of the monitor details page.",
+                        null=True,
                     ),
                 ),
                 ("last_read", models.DateTimeField(blank=True, null=True)),
                 ("last_value", models.FloatField(blank=True, null=True)),
-                (
-                    "monitor_category",
-                    models.ForeignKey(
-                        blank=True,
-                        null=True,
-                        on_delete=django.db.models.deletion.SET_NULL,
-                        to="tool_monitors.monitorcategory",
-                    ),
-                ),
                 (
                     "tool",
                     models.ForeignKey(
@@ -101,10 +61,55 @@ class Migration(migrations.Migration):
             },
         ),
         migrations.CreateModel(
+            name="MonitorColumn",
+            fields=[
+                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "name",
+                    models.CharField(help_text="Field name as it appears in forms and CSV headers.", max_length=255),
+                ),
+                (
+                    "data_type",
+                    models.CharField(
+                        choices=[("float", "Float"), ("integer", "Integer"), ("string", "String")],
+                        default="float",
+                        help_text="Expected data type for this column.",
+                        max_length=20,
+                    ),
+                ),
+                ("order", models.PositiveIntegerField(default=0, help_text="Display order on the chart and table.")),
+                (
+                    "unit_label",
+                    models.CharField(
+                        blank=True,
+                        default="",
+                        help_text="Unit label for this field on the chart y-axis (e.g. A/min, %).",
+                        max_length=255,
+                    ),
+                ),
+                (
+                    "monitor",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE, related_name="columns", to="monitors.monitor"
+                    ),
+                ),
+            ],
+            options={
+                "ordering": ["order", "name"],
+                "unique_together": {("monitor", "name")},
+            },
+        ),
+        migrations.CreateModel(
             name="MonitorData",
             fields=[
                 ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("value", models.FloatField()),
+                ("value", models.FloatField(blank=True, null=True)),
+                (
+                    "string_value",
+                    models.CharField(
+                        blank=True, default="", help_text="Populated for string-typed columns.", max_length=255
+                    ),
+                ),
                 (
                     "created_date",
                     models.DateTimeField(
@@ -116,15 +121,32 @@ class Migration(migrations.Migration):
                 (
                     "created_on",
                     models.DateTimeField(
-                        auto_now_add=True,
-                        help_text="The server timestamp when this data point was uploaded.",
+                        auto_now_add=True, help_text="The server timestamp when this data point was uploaded."
                     ),
                 ),
                 (
                     "updated_on",
                     models.DateTimeField(
-                        auto_now=True,
-                        help_text="The server timestamp when this data point was last edited.",
+                        auto_now=True, help_text="The server timestamp when this data point was last edited."
+                    ),
+                ),
+                (
+                    "notes",
+                    models.TextField(
+                        blank=True,
+                        default="",
+                        help_text="Optional comment about this measurement (not plotted on the chart).",
+                    ),
+                ),
+                (
+                    "column",
+                    models.ForeignKey(
+                        blank=True,
+                        help_text="The column definition this data point belongs to. Null for legacy single-value rows.",
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="data_points",
+                        to="monitors.monitorcolumn",
                     ),
                 ),
                 (
@@ -138,6 +160,7 @@ class Migration(migrations.Migration):
                         to=settings.AUTH_USER_MODEL,
                     ),
                 ),
+                ("monitor", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="monitors.monitor")),
                 (
                     "updated_by",
                     models.ForeignKey(
@@ -149,18 +172,11 @@ class Migration(migrations.Migration):
                         to=settings.AUTH_USER_MODEL,
                     ),
                 ),
-                (
-                    "monitor",
-                    models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE,
-                        to="tool_monitors.monitor",
-                    ),
-                ),
             ],
             options={
                 "verbose_name_plural": "Monitor data",
                 "ordering": ["-created_date"],
-                "permissions": [("upload_monitor_data", "Can upload tool monitor data")],
+                "permissions": [("upload_monitor_data", "Can upload monitor data")],
             },
         ),
         migrations.CreateModel(
@@ -172,13 +188,7 @@ class Migration(migrations.Migration):
                 ("reset", models.BooleanField(default=False)),
                 ("condition", models.TextField(blank=True, null=True)),
                 ("no_data", models.BooleanField(default=False)),
-                (
-                    "monitor",
-                    models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE,
-                        to="tool_monitors.monitor",
-                    ),
-                ),
+                ("monitor", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="monitors.monitor")),
             ],
             options={
                 "ordering": ["-time"],
@@ -192,18 +202,14 @@ class Migration(migrations.Migration):
                 (
                     "trigger_no_data",
                     models.BooleanField(
-                        default=False,
-                        help_text="Check this box to trigger this alert when no data is available",
+                        default=False, help_text="Check this box to trigger this alert when no data is available"
                     ),
                 ),
                 (
                     "trigger_condition",
                     models.TextField(
                         blank=True,
-                        help_text=(
-                            "The trigger condition for this alert. The monitor value is available as a variable "
-                            "named <b>value</b>. e.g. value == 42 or value > 42."
-                        ),
+                        help_text="The trigger condition for this alert. The monitor value is available as a variable named <b>value</b>. e.g. value == 42 or value > 42.",
                         null=True,
                     ),
                 ),
@@ -212,22 +218,15 @@ class Migration(migrations.Migration):
                     "additional_emails",
                     NEMO.fields.MultiEmailField(
                         blank=True,
-                        help_text=(
-                            "Additional email address to contact when this alert is triggered. "
-                            "A comma-separated list can be used."
-                        ),
+                        help_text="Additional email address to contact when this alert is triggered. A comma-separated list can be used.",
                         max_length=2000,
                         null=True,
                     ),
                 ),
-                (
-                    "monitor",
-                    models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE,
-                        to="tool_monitors.monitor",
-                    ),
-                ),
+                ("monitor", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="monitors.monitor")),
             ],
-            options={"abstract": False},
+            options={
+                "abstract": False,
+            },
         ),
     ]

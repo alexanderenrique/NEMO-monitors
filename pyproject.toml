@@ -1,8 +1,8 @@
 [project]
-name = "NEMO-tool-monitors"
+name = "NEMO-monitors"
 version = "0.1.0"
-description = "Plugin for NEMO allowing privileged users to upload tool monitor data points and view them per tool."
-keywords = ["NEMO", "tool monitors", "monitoring"]
+description = "Plugin for NEMO allowing privileged users to upload monitor data points and view charts, alerts, and exports per tool."
+keywords = ["NEMO", "monitors", "monitoring"]
 readme = "README.md"
 authors = [{name = "Alex Denton", email = "alexdenton998@gmail.com"}]
 classifiers = [
@@ -26,8 +26,8 @@ dependencies = [
 license = {file = "LICENSE"}
 
 [project.urls]
-Homepage = "https://github.com/alexanderenrique/NEMO-tool-monitors"
-Issues = "https://github.com/alexanderenrique/NEMO-tool-monitors/issues"
+Homepage = "https://github.com/alexanderenrique/NEMO-monitors"
+Issues = "https://github.com/alexanderenrique/NEMO-monitors/issues"
 
 [project.optional-dependencies]
 NEMO-CE = ["NEMO-CE>=7.3.0",]
@@ -35,10 +35,10 @@ NEMO = ["NEMO>=7.3.0",]
 dev-tools = ["pre-commit", "djlint", "black"]
 
 [tool.setuptools.packages.find]
-include = ["NEMO_tool_monitors*"]
+include = ["NEMO_monitors*"]
 
 [tool.setuptools.package-data]
-NEMO_tool_monitors = ["static/**/*", "templates/**/*"]
+NEMO_monitors = ["static/**/*", "templates/**/*"]
 
 [build-system]
 requires = ["setuptools>=42", "wheel"]

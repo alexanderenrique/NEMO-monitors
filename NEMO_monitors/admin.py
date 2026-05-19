@@ -5,7 +5,7 @@ from django.contrib.admin.decorators import display
 from django.urls import reverse
 from django.utils.safestring import mark_safe
 
-from NEMO_tool_monitors.models import (
+from NEMO_monitors.models import (
     DEFAULT_DATA_ENTRY_FIELDS,
     Monitor,
     MonitorAlertEmail,
@@ -28,7 +28,7 @@ def duplicate_monitor_configuration(model_admin, request, queryset: QuerySetType
                     request,
                     mark_safe(
                         f'There is already a copy of {original_name} as '
-                        f'<a href="{reverse("admin:tool_monitors_monitor_change", args=[existing.first().id])}">{new_name}</a>. '
+                        f'<a href="{reverse("admin:monitors_monitor_change", args=[existing.first().id])}">{new_name}</a>. '
                         f'Change the copy\'s name and try again'
                     ),
                 )
@@ -42,7 +42,7 @@ def duplicate_monitor_configuration(model_admin, request, queryset: QuerySetType
                 request,
                 mark_safe(
                     f'A duplicate of {original_name} has been made as '
-                    f'<a href="{reverse("admin:tool_monitors_monitor_change", args=[new_monitor.id])}">{new_monitor.name}</a>'
+                    f'<a href="{reverse("admin:monitors_monitor_change", args=[new_monitor.id])}">{new_monitor.name}</a>'
                 ),
             )
         except Exception as error:

@@ -3,13 +3,13 @@ from importlib.metadata import PackageNotFoundError
 from django.apps import AppConfig
 
 # Wheel / PyPI name from pyproject.toml [project].name — NOT the same as AppConfig.name
-DISTRIBUTION_NAME = "NEMO-tool-monitors"
+DISTRIBUTION_NAME = "NEMO-monitors"
 
 
-class ToolMonitorsConfig(AppConfig):
-    name = "NEMO_tool_monitors"
-    label = "tool_monitors"
-    verbose_name = "Tool monitors"
+class MonitorsConfig(AppConfig):
+    name = "NEMO_monitors"
+    label = "monitors"
+    verbose_name = "Monitors"
     default_auto_field = "django.db.models.AutoField"
 
     def ready(self):
@@ -20,10 +20,10 @@ class ToolMonitorsConfig(AppConfig):
 
         # get_extra_requires() looks up importlib.metadata.distribution(app_name).
         # That expects the *installed distribution* name (hyphenated PyPI name), not the
-        # Python package path (NEMO_tool_monitors). When running only from NEMO/plugins
+        # Python package path (NEMO_monitors). When running only from NEMO/plugins
         # without pip installing the wheel into the active interpreter, the dist is absent
         # — skip the check instead of crashing.
-        for dist_name in (DISTRIBUTION_NAME, "nemo-tool-monitors"):
+        for dist_name in (DISTRIBUTION_NAME, "nemo-monitors", "NEMO-tool-monitors", "nemo-tool-monitors"):
             try:
                 check_extra_dependencies(dist_name, ["NEMO", "NEMO-CE"])
                 return

@@ -1,6 +1,6 @@
 from logging import getLogger
 
-from NEMO_tool_monitors.models import Monitor, MonitorAlert, MonitorData
+from NEMO_monitors.models import Monitor, MonitorAlert, MonitorData
 
 alerts_logger = getLogger(__name__)
 

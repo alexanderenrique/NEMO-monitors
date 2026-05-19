@@ -4,7 +4,7 @@ from NEMO.decorators import customization
 from NEMO.views.customization import CustomizationBase
 
 
-@customization(key="tool_monitors", title="Tool monitor data")
+@customization(key="monitors", title="Monitor data")
 class MonitorCustomization(CustomizationBase):
     variables = {
         "monitor_default_daterange": "last_year",

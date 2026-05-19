@@ -12,7 +12,7 @@ from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import login_required, permission_required
 from django.db import transaction
-from django.db.models import Prefetch, Q
+from django.db.models import Max, Min, Prefetch, Q
 from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
@@ -32,9 +32,9 @@ from NEMO.utilities import (
     slugify_underscore,
 )
 
-from NEMO_tool_monitors.customizations import MonitorCustomization
-from NEMO_tool_monitors.html_utils import normalize_description_links
-from NEMO_tool_monitors.models import (
+from NEMO_monitors.customizations import MonitorCustomization
+from NEMO_monitors.html_utils import normalize_description_links
+from NEMO_monitors.models import (
     DEFAULT_DATA_ENTRY_FIELDS,
     Monitor,
     MonitorAlertLog,
@@ -42,7 +42,7 @@ from NEMO_tool_monitors.models import (
     MonitorData,
 )
 
-UPLOAD_PERMISSION = "tool_monitors.upload_monitor_data"
+UPLOAD_PERMISSION = "monitors.upload_monitor_data"
 
 
 def _monitor_uses_legacy_notes(monitor: Monitor) -> bool:
@@ -78,7 +78,7 @@ def _can_upload(user) -> bool:
 
 
 def _post_add_data_redirect(request, monitor: Monitor) -> str:
-    """Prefer returning to the tool monitors page when that form submitted return_to_tool."""
+    """Prefer returning to the per-tool monitors page when that form submitted return_to_tool."""
     raw = request.POST.get("return_to_tool")
     if raw is None or raw == "":
         return reverse("monitor_details", args=[monitor.pk, "data"])
@@ -88,7 +88,7 @@ def _post_add_data_redirect(request, monitor: Monitor) -> str:
         return reverse("monitor_details", args=[monitor.pk, "data"])
     if tool_id != monitor.tool_id:
         return reverse("monitor_details", args=[monitor.pk, "data"])
-    return reverse("tool_monitors_for_tool", args=[tool_id])
+    return reverse("monitors_for_tool", args=[tool_id])
 
 
 def _parse_input_datetime(raw: str) -> Optional[datetime]:
@@ -164,6 +164,15 @@ def _match_csv_header_to_monitor_column(header: str, by_normalized_name: Dict[st
         if norm == key_stripped or (stripped and stripped == key_stripped):
             return col
     return None
+
+
+def _monitor_data_date_bounds(monitor: Monitor) -> Tuple[Optional[datetime], Optional[datetime]]:
+    """Earliest and latest created_date for this monitor's data points, if any."""
+    bounds = MonitorData.objects.filter(monitor=monitor).aggregate(
+        earliest=Min("created_date"),
+        latest=Max("created_date"),
+    )
+    return bounds["earliest"], bounds["latest"]
 
 
 def _monitor_details_data_redirect_covering_times(monitor_id: int, timestamps: List[datetime]) -> str:
@@ -288,7 +297,7 @@ def _monitors_dashboard_context(category_path: Optional[str] = None) -> Dict:
 def monitors_dashboard(request, category_path: Optional[str] = None):
     dictionary = _monitors_dashboard_context(category_path)
     dictionary["can_upload"] = _can_upload(request.user)
-    return render(request, "NEMO_tool_monitors/monitors.html", dictionary)
+    return render(request, "NEMO_monitors/monitors.html", dictionary)
 
 
 @login_required
@@ -325,14 +334,14 @@ def monitors_upload_hub(request):
     ]
     return render(
         request,
-        "NEMO_tool_monitors/monitors_upload_hub.html",
+        "NEMO_monitors/monitors_upload_hub.html",
         {"tools_payload": tools_payload},
     )
 
 
 @login_required
 @require_GET
-def tool_monitors_for_tool(request, tool_id):
+def monitors_for_tool(request, tool_id):
     tool = get_object_or_404(Tool, pk=tool_id)
     monitor_list = tool.monitors.filter(visible=True).order_by("name").prefetch_related("columns")
     alert_logs = MonitorAlertLog.objects.filter(monitor__in=monitor_list)[:30]
@@ -352,7 +361,7 @@ def tool_monitors_for_tool(request, tool_id):
         "add_data_action_template": reverse("add_monitor_data", args=[0]),
         "monitors_columns_json": json.dumps(monitors_columns),
     }
-    return render(request, "NEMO_tool_monitors/tool_monitors.html", dictionary)
+    return render(request, "NEMO_monitors/monitors_for_tool.html", dictionary)
 
 
 @login_required
@@ -361,6 +370,7 @@ def monitor_details(request, monitor_id, tab: str = None):
     monitor = get_object_or_404(Monitor, pk=monitor_id)
     chart_step = int(request.GET.get("chart_step", 1))
     monitor_data, start, end = get_monitor_data(request, monitor)
+    earliest, latest = _monitor_data_date_bounds(monitor)
     dictionary = {
         "tab": tab or "chart",
         "monitor": monitor,
@@ -370,8 +380,10 @@ def monitor_details(request, monitor_id, tab: str = None):
         "end": end,
         "chart_step": chart_step,
         "can_upload": _can_upload(request.user),
+        "data_earliest_unix": int(earliest.timestamp()) if earliest else None,
+        "data_latest_unix": int(latest.timestamp()) if latest else None,
     }
-    return render(request, "NEMO_tool_monitors/monitor_data.html", dictionary)
+    return render(request, "NEMO_monitors/monitor_data.html", dictionary)
 
 
 @login_required
@@ -392,7 +404,7 @@ def export_monitor_data(request, monitor_id):
     table_result.add_header(("created_on", "Uploaded on"))
     table_result.add_header(("updated_by", "Last edited by"))
     table_result.add_header(("updated_on", "Last edited on"))
-    for data_point in monitor_data.select_related("column"):
+    for data_point in monitor_data.select_related("column").order_by("-created_date", "-id"):
         row = {
             "date": data_point.created_date,
             "value": data_point.value,
@@ -521,7 +533,7 @@ def monitor_alert_log(request, monitor_id):
     alert_log_entries = MonitorAlertLog.objects.filter(
         monitor=monitor, time__gte=start, time__lte=end or timezone.now()
     )
-    return render(request, "NEMO_tool_monitors/monitor_alerts.html", {"alerts": alert_log_entries})
+    return render(request, "NEMO_monitors/monitor_alerts.html", {"alerts": alert_log_entries})
 
 
 def get_monitor_data(request, monitor) -> Tuple[QuerySetType[MonitorData], datetime, datetime]:
@@ -970,7 +982,7 @@ def delete_monitor(request, monitor_id):
     tool_id = monitor.tool_id
     monitor.delete()
     messages.success(request, f"Deleted monitor.")
-    return HttpResponseRedirect(reverse("tool_monitors_for_tool", args=[tool_id]))
+    return HttpResponseRedirect(reverse("monitors_for_tool", args=[tool_id]))
 
 
 def _monitor_form(request, monitor: Optional[Monitor], tool: Tool):
@@ -1014,7 +1026,7 @@ def _monitor_form(request, monitor: Optional[Monitor], tool: Tool):
 
             # Sync column definitions
             _sync_monitor_columns(request, monitor, submitted_columns)
-            return HttpResponseRedirect(reverse("tool_monitors_for_tool", args=[tool.id]))
+            return HttpResponseRedirect(reverse("monitors_for_tool", args=[tool.id]))
 
     dictionary = {
         "monitor": monitor,
@@ -1024,7 +1036,7 @@ def _monitor_form(request, monitor: Optional[Monitor], tool: Tool):
         "column_type_choices": MonitorColumn._meta.get_field("data_type").choices,
         "error": error,
     }
-    return render(request, "NEMO_tool_monitors/monitor_form.html", dictionary)
+    return render(request, "NEMO_monitors/monitor_form.html", dictionary)
 
 
 def _sync_monitor_columns(request, monitor: Monitor, submitted_columns: List[Tuple[str, str, str]]):

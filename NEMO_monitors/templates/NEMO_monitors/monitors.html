@@ -2,7 +2,7 @@
 {% load static %}
 {% load custom_tags_and_filters %}
 {% block extrahead %}
-    <link rel="stylesheet" type="text/css" href="{% static 'NEMO_tool_monitors/monitors.css' %}" />
+    <link rel="stylesheet" type="text/css" href="{% static 'NEMO_monitors/monitors.css' %}" />
 {% endblock %}
 {% block title %}Monitors{% endblock %}
 {% block content %}
@@ -12,11 +12,11 @@
                 <li class="active">Monitor Dashboard</li>
             {% else %}
                 <li>
-                    <a href="{% url 'tool_monitors' %}">Dashboard</a>
+                    <a href="{% url 'monitors' %}">Dashboard</a>
                 </li>
                 {% for ancestor in selected_category.ancestors %}
                     <li>
-                        <a href="{% url 'tool_monitors_category' ancestor.path %}">{{ ancestor.name }}</a>
+                        <a href="{% url 'monitors_category' ancestor.path %}">{{ ancestor.name }}</a>
                     </li>
                 {% endfor %}
                 <li class="active">{{ selected_category.name }}</li>
@@ -26,13 +26,13 @@
             {% if categories %}
                 {% for category in categories %}
                     <li class="dashboard-category-group-item text-center {% if category.alert_triggered %}alert-danger{% else %}alert-success{% endif %}"
-                        onclick="window.location='{% url 'tool_monitors_category' category.path %}'">{{ category.name }}</li>
+                        onclick="window.location='{% url 'monitors_category' category.path %}'">{{ category.name }}</li>
                 {% endfor %}
             {% endif %}
             {% if tools_with_monitors %}
                 {% for tool in tools_with_monitors %}
                     <li class="dashboard-tool-group-item text-center alert-info"
-                        onclick="window.location='{% url 'tool_monitors_for_tool' tool.id %}'">
+                        onclick="window.location='{% url 'monitors_for_tool' tool.id %}'">
                         <strong>{{ tool.name }}</strong>
                         <br>
                         <small>{{ tool.monitors.count }} monitor{{ tool.monitors.count|pluralize }}</small>
@@ -47,7 +47,7 @@
                         <br />
                         You can add monitors by navigating to
                         <br>
-                        <a href="{% url 'admin:app_list' 'tool_monitors' %}">Administration -> Detailed Administration -> Tool monitors</a>
+                        <a href="{% url 'admin:app_list' 'monitors' %}">Administration -> Detailed Administration -> Monitors</a>
                     {% endif %}
                 </div>
             {% endif %}

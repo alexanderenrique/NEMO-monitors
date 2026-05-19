@@ -2,23 +2,23 @@
 {% load static %}
 {% load custom_tags_and_filters %}
 {% block extrahead %}
-    <link rel="stylesheet" type="text/css" href="{% static 'NEMO_tool_monitors/monitors.css' %}" />
+    <link rel="stylesheet" type="text/css" href="{% static 'NEMO_monitors/monitors.css' %}" />
 {% endblock %}
 {% block title %}Monitors for {{ tool.name }}{% endblock %}
 {% block content %}
     <div class="well well-monitors-dashboard">
         <ol class="breadcrumb breadcrumb-monitors-dashboard">
             <li>
-                <a href="{% url 'tool_monitors' %}">Dashboard</a>
+                <a href="{% url 'monitors' %}">Dashboard</a>
             </li>
             {% if tool_category %}
                 {% for ancestor in tool_category.ancestors %}
                     <li>
-                        <a href="{% url 'tool_monitors_category' ancestor.path %}">{{ ancestor.name }}</a>
+                        <a href="{% url 'monitors_category' ancestor.path %}">{{ ancestor.name }}</a>
                     </li>
                 {% endfor %}
                 <li>
-                    <a href="{% url 'tool_monitors_category' tool_category.path %}">{{ tool_category.name }}</a>
+                    <a href="{% url 'monitors_category' tool_category.path %}">{{ tool_category.name }}</a>
                 </li>
             {% endif %}
             <li class="active">{{ tool.name }}</li>
@@ -226,11 +226,11 @@
             {% else %}
                 <div class="dashboard-no-group-items">
                     No monitors yet for this tool. Monitors are created by site staff in
-                    <strong>Django administration</strong> (Tool monitors).
+                    <strong>Django administration</strong> (Monitors).
                     {% if user.is_superuser and "django.contrib.admin"|app_installed %}
                         <br>
                         <br>
-                        <a class="btn btn-default" href="{% url 'admin:tool_monitors_monitor_add' %}?tool={{ tool.id }}">Add monitor in admin</a>
+                        <a class="btn btn-default" href="{% url 'admin:monitors_monitor_add' %}?tool={{ tool.id }}">Add monitor in admin</a>
                     {% endif %}
                 </div>
             {% endif %}

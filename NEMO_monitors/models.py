@@ -12,8 +12,8 @@ from django.dispatch import receiver
 from django.utils import timezone
 from django.utils.safestring import mark_safe
 
-from NEMO_tool_monitors.customizations import MonitorCustomization
-from NEMO_tool_monitors.html_utils import normalize_description_links
+from NEMO_monitors.customizations import MonitorCustomization
+from NEMO_monitors.html_utils import normalize_description_links
 from NEMO.constants import CHAR_FIELD_MEDIUM_LENGTH
 from NEMO.evaluators import evaluate_boolean_expression
 from NEMO.fields import MultiEmailField
@@ -163,12 +163,12 @@ class MonitorData(BaseModel):
     class Meta:
         verbose_name_plural = "Monitor data"
         ordering = ["-created_date"]
-        permissions = [("upload_monitor_data", "Can upload tool monitor data")]
+        permissions = [("upload_monitor_data", "Can upload monitor data")]
 
 
 @receiver(post_save, sender=MonitorData)
 def monitor_data_post_save(sender, instance: MonitorData, created, **kwargs):
-    from NEMO_tool_monitors.alerts import process_alerts
+    from NEMO_monitors.alerts import process_alerts
 
     monitor = instance.monitor
     latest = MonitorData.objects.filter(monitor=monitor, value__isnull=False).order_by("-created_date").first()

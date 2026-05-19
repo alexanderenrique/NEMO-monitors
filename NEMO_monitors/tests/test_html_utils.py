@@ -1,6 +1,6 @@
 from django.test import SimpleTestCase
 
-from NEMO_tool_monitors.html_utils import normalize_description_links, normalize_external_href
+from NEMO_monitors.html_utils import normalize_description_links, normalize_external_href
 
 
 class NormalizeExternalHrefTests(SimpleTestCase):
