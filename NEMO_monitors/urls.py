@@ -28,6 +28,21 @@ urlpatterns = [
     ),
     path("monitor_chart_data/<int:monitor_id>/", views.monitor_chart_data, name="monitor_chart_data"),
     path("monitor_alert_log/<int:monitor_id>/", views.monitor_alert_log, name="monitor_alert_log"),
+    path(
+        "monitor/<int:monitor_id>/alert/save/",
+        views.save_monitor_alert,
+        name="save_monitor_alert",
+    ),
+    path(
+        "monitor/<int:monitor_id>/alert/<int:alert_id>/save/",
+        views.save_monitor_alert,
+        name="edit_monitor_alert",
+    ),
+    path(
+        "monitor/<int:monitor_id>/alert/<int:alert_id>/delete/",
+        views.delete_monitor_alert,
+        name="delete_monitor_alert",
+    ),
     path("export_monitor_data/<int:monitor_id>/", views.export_monitor_data, name="export_monitor_data"),
     path(
         "monitor/<int:monitor_id>/data/add/",

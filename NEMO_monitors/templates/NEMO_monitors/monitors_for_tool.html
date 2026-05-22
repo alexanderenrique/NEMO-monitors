@@ -234,16 +234,6 @@
                     {% endif %}
                 </div>
             {% endif %}
-            {% if alert_logs %}
-                <h4 style="margin-top:25px;">Recent alerts</h4>
-                <ul>
-                    {% for alert in alert_logs %}
-                        <li class="{% if alert.reset %}success-highlight{% else %}danger-highlight{% endif %}">
-                            [{{ alert.monitor.name }}] {{ alert.description }}
-                        </li>
-                    {% endfor %}
-                </ul>
-            {% endif %}
         </div>
     </div>
 {% endblock %}

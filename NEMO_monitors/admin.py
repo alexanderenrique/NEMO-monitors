@@ -87,7 +87,15 @@ class MonitorAdminForm(forms.ModelForm):
 
 class MonitorColumnInline(admin.TabularInline):
     model = MonitorColumn
-    fields = ("name", "data_type", "unit_label", "order")
+    fields = (
+        "name",
+        "data_type",
+        "unit_label",
+        "order",
+        "control_limits_mode",
+        "fixed_limit_min",
+        "fixed_limit_max",
+    )
     ordering = ("order", "name")
     verbose_name = "Data entry field"
     verbose_name_plural = "Data entry fields"
@@ -173,14 +181,22 @@ class MonitorDataAdmin(admin.ModelAdmin):
 
 @register(MonitorAlertEmail)
 class MonitorAlertEmailAdmin(admin.ModelAdmin):
-    list_display = ("monitor", "enabled", "trigger_condition", "trigger_no_data", "additional_emails", "triggered_on")
+    list_display = (
+        "monitor",
+        "column",
+        "enabled",
+        "trigger_condition",
+        "trigger_no_data",
+        "recipient_emails",
+        "triggered_on",
+    )
     actions = [disable_selected_alerts, enable_selected_alerts]
     autocomplete_fields = ["monitor"]
 
 
 @register(MonitorAlertLog)
 class MonitorAlertLogAdmin(admin.ModelAdmin):
-    list_display = ["id", "time", "monitor", "reset", "value"]
+    list_display = ["id", "time", "monitor", "column", "reset", "value"]
     list_filter = [("monitor", admin.RelatedOnlyFieldListFilter), "value", "reset"]
     date_hierarchy = "time"
 

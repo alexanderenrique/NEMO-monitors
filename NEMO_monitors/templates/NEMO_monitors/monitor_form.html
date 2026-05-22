@@ -38,17 +38,6 @@
                 </div>
             </div>
             <div class="form-group">
-                <label class="control-label col-md-3" for="data_unit_label">Default unit label</label>
-                <div class="col-md-3">
-                    <input type="text"
-                           id="data_unit_label"
-                           name="data_unit_label"
-                           class="form-control"
-                           value="{{ monitor.data_unit_label|default_if_none:'' }}"
-                           placeholder="e.g. PSI, kHz, hrs" />
-                </div>
-            </div>
-            <div class="form-group">
                 <label class="control-label col-md-3" for="description">Description</label>
                 <div class="col-md-6">
                     <textarea id="description"
@@ -71,18 +60,22 @@
             </div>
             <div class="form-group">
                 <label class="control-label col-md-3">Data entry fields</label>
-                <div class="col-md-8">
+                <div class="col-md-9">
                     <p class="help-block" style="margin-bottom: 8px;">
                         Define the fields shown when adding data and expected in uploaded CSVs.
                         New monitors start with <strong>Value</strong> and <strong>Notes</strong>; remove or rename them as needed.
+                        For numeric fields, optional control limits can be shown on the chart: <strong>3σ (statistical)</strong> uses mean ± 3 standard deviations of data in the selected date range, or <strong>fixed</strong> min/max lines.
                     </p>
                     <table class="table table-condensed table-bordered" id="data-entry-fields-table" style="margin-bottom: 8px;">
                         <thead>
                             <tr>
-                                <th style="width: 40%">Field name</th>
-                                <th style="width: 25%">Type</th>
-                                <th style="width: 25%">Unit label</th>
-                                <th style="width: 10%"></th>
+                                <th>Field name</th>
+                                <th>Type</th>
+                                <th>Unit label</th>
+                                <th>Control limits</th>
+                                <th>Fixed min</th>
+                                <th>Fixed max</th>
+                                <th></th>
                             </tr>
                         </thead>
                         <tbody id="data-entry-fields-body">
@@ -96,7 +89,7 @@
                                                placeholder="e.g. Mean" />
                                     </td>
                                     <td>
-                                        <select name="column_type[]" class="form-control input-sm">
+                                        <select name="column_type[]" class="form-control input-sm js-column-type">
                                             {% for value, label in column_type_choices %}
                                                 <option value="{{ value }}" {% if field.data_type == value %}selected{% endif %}>{{ label }}</option>
                                             {% endfor %}
@@ -108,6 +101,53 @@
                                                class="form-control input-sm"
                                                value="{{ field.unit_label|default_if_none:'' }}"
                                                placeholder="e.g. A/min, %" />
+                                    </td>
+                                    <td class="js-control-limits-cell">
+                                        <label class="radio-inline" style="margin-right: 6px;">
+                                            <input type="radio"
+                                                   name="column_control_limits_mode_{{ forloop.counter0 }}"
+                                                   class="js-limits-mode"
+                                                   value=""
+                                                   data-field-name="column_control_limits_mode[]"
+                                                   {% if not field.control_limits_mode %}checked{% endif %} />
+                                            None
+                                        </label>
+                                        <label class="radio-inline" style="margin-right: 6px;">
+                                            <input type="radio"
+                                                   class="js-limits-mode"
+                                                   value="statistical"
+                                                   data-field-name="column_control_limits_mode[]"
+                                                   {% if field.control_limits_mode == 'statistical' %}checked{% endif %} />
+                                            3σ
+                                        </label>
+                                        <label class="radio-inline">
+                                            <input type="radio"
+                                                   class="js-limits-mode"
+                                                   value="fixed"
+                                                   data-field-name="column_control_limits_mode[]"
+                                                   {% if field.control_limits_mode == 'fixed' %}checked{% endif %} />
+                                            Fixed
+                                        </label>
+                                        <input type="hidden"
+                                               name="column_control_limits_mode[]"
+                                               class="js-limits-mode-value"
+                                               value="{{ field.control_limits_mode|default:'' }}" />
+                                    </td>
+                                    <td>
+                                        <input type="number"
+                                               step="any"
+                                               name="column_fixed_min[]"
+                                               class="form-control input-sm js-fixed-min"
+                                               value="{% if field.fixed_limit_min is not None %}{{ field.fixed_limit_min }}{% endif %}"
+                                               placeholder="Min" />
+                                    </td>
+                                    <td>
+                                        <input type="number"
+                                               step="any"
+                                               name="column_fixed_max[]"
+                                               class="form-control input-sm js-fixed-max"
+                                               value="{% if field.fixed_limit_max is not None %}{{ field.fixed_limit_max }}{% endif %}"
+                                               placeholder="Max" />
                                     </td>
                                     <td class="text-center">
                                         <button type="button" class="btn btn-danger btn-xs js-remove-data-entry-field">Remove</button>
@@ -143,23 +183,90 @@
                 const sel = c.value === selectedValue ? ' selected' : '';
                 return '<option value="' + c.value + '"' + sel + '>' + c.label + '</option>';
             }).join('');
-            return '<select name="column_type[]" class="form-control input-sm">' + opts + '</select>';
+            return '<select name="column_type[]" class="form-control input-sm js-column-type">' + opts + '</select>';
         }
 
-        function buildDataEntryFieldRow(name, type, unitLabel) {
+        function syncLimitsModeHidden(row) {
+            const checked = row.querySelector('.js-limits-mode:checked');
+            const hidden = row.querySelector('.js-limits-mode-value');
+            if (hidden && checked) {
+                hidden.value = checked.value;
+            }
+        }
+
+        function updateControlLimitsRowState(row) {
+            const typeSelect = row.querySelector('.js-column-type');
+            const isPlottable = typeSelect && typeSelect.value !== 'string';
+            const mode = row.querySelector('.js-limits-mode-value');
+            const modeValue = mode ? mode.value : '';
+            const fixedMin = row.querySelector('.js-fixed-min');
+            const fixedMax = row.querySelector('.js-fixed-max');
+            const limitsRadios = row.querySelectorAll('.js-limits-mode');
+            const limitsCell = row.querySelector('.js-control-limits-cell');
+
+            limitsRadios.forEach(function(radio) {
+                radio.disabled = !isPlottable;
+            });
+            if (!isPlottable && limitsCell) {
+                limitsRadios.forEach(function(radio) {
+                    if (radio.value === '') {
+                        radio.checked = true;
+                    }
+                });
+                if (mode) {
+                    mode.value = '';
+                }
+            }
+            const fixedEnabled = isPlottable && modeValue === 'fixed';
+            if (fixedMin) {
+                fixedMin.disabled = !fixedEnabled;
+                if (!fixedEnabled) {
+                    fixedMin.value = '';
+                }
+            }
+            if (fixedMax) {
+                fixedMax.disabled = !fixedEnabled;
+                if (!fixedEnabled) {
+                    fixedMax.value = '';
+                }
+            }
+        }
+
+        function buildDataEntryFieldRow(name, type, unitLabel, limitsMode, fixedMin, fixedMax) {
             name = name || '';
             type = type || 'float';
             unitLabel = unitLabel || '';
+            limitsMode = limitsMode || '';
+            fixedMin = fixedMin != null && fixedMin !== '' ? fixedMin : '';
+            fixedMax = fixedMax != null && fixedMax !== '' ? fixedMax : '';
+            const noneChecked = limitsMode === '' ? ' checked' : '';
+            const statChecked = limitsMode === 'statistical' ? ' checked' : '';
+            const fixedChecked = limitsMode === 'fixed' ? ' checked' : '';
             return '<tr class="data-entry-field-row">'
                 + '<td><input type="text" name="column_name[]" class="form-control input-sm" value="' + name + '" placeholder="e.g. Mean" /></td>'
                 + '<td>' + buildTypeSelect(type) + '</td>'
                 + '<td><input type="text" name="column_unit_label[]" class="form-control input-sm" value="' + unitLabel + '" placeholder="e.g. A/min, %" /></td>'
+                + '<td class="js-control-limits-cell">'
+                + '<label class="radio-inline" style="margin-right: 6px;"><input type="radio" class="js-limits-mode" value="" data-field-name="column_control_limits_mode[]"' + noneChecked + ' /> None</label>'
+                + '<label class="radio-inline" style="margin-right: 6px;"><input type="radio" class="js-limits-mode" value="statistical" data-field-name="column_control_limits_mode[]"' + statChecked + ' /> 3σ</label>'
+                + '<label class="radio-inline"><input type="radio" class="js-limits-mode" value="fixed" data-field-name="column_control_limits_mode[]"' + fixedChecked + ' /> Fixed</label>'
+                + '<input type="hidden" name="column_control_limits_mode[]" class="js-limits-mode-value" value="' + limitsMode + '" />'
+                + '</td>'
+                + '<td><input type="number" step="any" name="column_fixed_min[]" class="form-control input-sm js-fixed-min" value="' + fixedMin + '" placeholder="Min" /></td>'
+                + '<td><input type="number" step="any" name="column_fixed_max[]" class="form-control input-sm js-fixed-max" value="' + fixedMax + '" placeholder="Max" /></td>'
                 + '<td class="text-center"><button type="button" class="btn btn-danger btn-xs js-remove-data-entry-field">Remove</button></td>'
                 + '</tr>';
         }
 
+        function initDataEntryFieldRow(row) {
+            syncLimitsModeHidden(row);
+            updateControlLimitsRowState(row);
+        }
+
         document.getElementById('add-data-entry-field-btn').addEventListener('click', function() {
-            document.getElementById('data-entry-fields-body').insertAdjacentHTML('beforeend', buildDataEntryFieldRow());
+            const tbody = document.getElementById('data-entry-fields-body');
+            tbody.insertAdjacentHTML('beforeend', buildDataEntryFieldRow());
+            initDataEntryFieldRow(tbody.lastElementChild);
         });
 
         document.getElementById('data-entry-fields-body').addEventListener('click', function(e) {
@@ -167,5 +274,20 @@
                 e.target.closest('tr').remove();
             }
         });
+
+        document.getElementById('data-entry-fields-body').addEventListener('change', function(e) {
+            const row = e.target.closest('tr');
+            if (!row) {
+                return;
+            }
+            if (e.target.classList.contains('js-limits-mode')) {
+                syncLimitsModeHidden(row);
+            }
+            if (e.target.classList.contains('js-limits-mode') || e.target.classList.contains('js-column-type')) {
+                updateControlLimitsRowState(row);
+            }
+        });
+
+        document.querySelectorAll('#data-entry-fields-body .data-entry-field-row').forEach(initDataEntryFieldRow);
     </script>
 {% endblock %}

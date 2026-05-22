@@ -310,7 +310,7 @@
       "trigger_no_data": false,
       "trigger_condition": "value > 70",
       "triggered_on": "2022-06-13T17:52:05.965Z",
-      "additional_emails": ""
+      "recipient_emails": ""
     }
   },
   {

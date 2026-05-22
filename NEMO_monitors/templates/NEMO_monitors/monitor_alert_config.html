@@ -1,0 +1,138 @@
+{% load custom_tags_and_filters %}
+<h4 style="margin-top: 0;">Email alert rules</h4>
+<p class="help-block">
+    Configure who receives email when a condition is met or when there is no data for a field.
+    Conditions use the variable <code>value</code> (e.g. <code>value &gt; 42</code>).
+</p>
+
+{% if has_defined_columns and plottable_columns %}
+    <p class="help-block">Select the data entry field each alert should watch.</p>
+{% elif has_defined_columns %}
+    <p class="help-block text-warning">This monitor has no numeric fields; add a float or integer data entry field to use condition-based alerts.</p>
+{% endif %}
+
+<h5>Add alert</h5>
+<form method="POST" action="{% url 'save_monitor_alert' monitor.id %}" class="form-horizontal" style="margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid #ddd;">
+    {% csrf_token %}
+    {% if has_defined_columns %}
+        <div class="form-group">
+            <label class="control-label col-md-3" for="new-alert-column">Data entry field</label>
+            <div class="col-md-6">
+                <select id="new-alert-column" name="column_id" class="form-control">
+                    <option value="">—</option>
+                    {% for col in plottable_columns %}
+                        <option value="{{ col.id }}">{{ col.name }} ({{ col.get_data_type_display }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+    {% endif %}
+    <div class="form-group">
+        <label class="control-label col-md-3" for="new-alert-recipients">Recipient email(s)</label>
+        <div class="col-md-6">
+            <input type="text"
+                   id="new-alert-recipients"
+                   name="recipient_emails"
+                   class="form-control"
+                   placeholder="alerts@example.org, backup@example.org" />
+        </div>
+    </div>
+    <div class="form-group">
+        <label class="control-label col-md-3" for="new-alert-condition">Trigger condition</label>
+        <div class="col-md-6">
+            <textarea id="new-alert-condition"
+                      name="trigger_condition"
+                      class="form-control"
+                      rows="2"
+                      placeholder="value &gt; 100"></textarea>
+        </div>
+    </div>
+    <div class="form-group">
+        <div class="col-md-offset-3 col-md-6">
+            <label class="checkbox-inline">
+                <input type="checkbox" name="trigger_no_data" value="1" />
+                Trigger when there is no data
+            </label>
+            <label class="checkbox-inline">
+                <input type="checkbox" name="enabled" value="1" checked />
+                Enabled
+            </label>
+        </div>
+    </div>
+    <div class="form-group">
+        <div class="col-md-offset-3 col-md-6">
+            <button type="submit" class="btn btn-success">Add alert</button>
+        </div>
+    </div>
+</form>
+
+{% if monitor_alerts %}
+    <h5>Configured alerts</h5>
+    {% for alert in monitor_alerts %}
+        <form method="POST"
+              action="{% url 'edit_monitor_alert' monitor.id alert.id %}"
+              class="form-horizontal"
+              style="margin-bottom: 20px; padding: 12px; background: #f9f9f9; border: 1px solid #e3e3e3; border-radius: 4px;">
+            {% csrf_token %}
+            {% if has_defined_columns %}
+                <div class="form-group" style="margin-bottom: 8px;">
+                    <label class="control-label col-md-3">Data entry field</label>
+                    <div class="col-md-6">
+                        <select name="column_id" class="form-control input-sm">
+                            <option value="">—</option>
+                            {% for col in plottable_columns %}
+                                <option value="{{ col.id }}" {% if alert.column_id == col.id %}selected{% endif %}>
+                                    {{ col.name }} ({{ col.get_data_type_display }})
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+            {% endif %}
+            <div class="form-group" style="margin-bottom: 8px;">
+                <label class="control-label col-md-3">Recipient email(s)</label>
+                <div class="col-md-6">
+                    <input type="text"
+                           name="recipient_emails"
+                           class="form-control input-sm"
+                           value="{{ alert.recipient_emails|join:', ' }}" />
+                </div>
+            </div>
+            <div class="form-group" style="margin-bottom: 8px;">
+                <label class="control-label col-md-3">Trigger condition</label>
+                <div class="col-md-6">
+                    <textarea name="trigger_condition" class="form-control input-sm" rows="2">{{ alert.trigger_condition|default:'' }}</textarea>
+                </div>
+            </div>
+            <div class="form-group" style="margin-bottom: 8px;">
+                <div class="col-md-offset-3 col-md-6">
+                    <label class="checkbox-inline">
+                        <input type="checkbox" name="trigger_no_data" value="1" {% if alert.trigger_no_data %}checked{% endif %} />
+                        Trigger when there is no data
+                    </label>
+                    <label class="checkbox-inline">
+                        <input type="checkbox" name="enabled" value="1" {% if alert.enabled %}checked{% endif %} />
+                        Enabled
+                    </label>
+                    {% if alert.triggered_on %}
+                        <span class="label label-danger" style="margin-left: 8px;">Currently triggered</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                <div class="col-md-offset-3 col-md-6">
+                    <button type="submit" class="btn btn-primary btn-sm">Save</button>
+                    <button type="submit"
+                            class="btn btn-danger btn-sm"
+                            formaction="{% url 'delete_monitor_alert' monitor.id alert.id %}"
+                            formmethod="post"
+                            onclick="return confirm('Delete this alert?');">
+                        Delete
+                    </button>
+                </div>
+            </div>
+        </form>
+    {% endfor %}
+{% else %}
+    <p class="text-muted"><i>No email alerts configured yet.</i></p>
+{% endif %}

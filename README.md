@@ -16,7 +16,7 @@ Requires **NEMO or NEMO-CE ≥ 7.3.0** and **Python ≥ 3.10**.
 
 ### Monitor definitions
 
-- Each **monitor** belongs to one tool: name, visibility, optional **description** (HTML allowed; bare domains in links are normalized to `https://`), and an optional **default unit label** for legacy single-value displays.
+- Each **monitor** belongs to one tool: name, visibility, and optional **description** (HTML allowed; bare domains in links are normalized to `https://`).
 - **Staff** users can create, edit, and delete monitors from the web UI (`/monitor/create/<tool_id>/`, `/monitor/<id>/edit/`, `/monitor/<id>/delete/`). The same models are available in **Django admin** (duplicate monitor, show/hide bulk actions, inline **data entry fields**).
 - **Data entry fields** (`MonitorColumn`) define what is collected per timestamp: name, type (`float`, `integer`, `string`), display order, and optional **per-field unit label** for chart axes. New monitors default to **Value** (float) and **Notes** (string); fields can be added, renamed, reordered, or removed. Removing a field that still has data **unlinks** those rows (column set to null) and shows a warning.
 
@@ -36,9 +36,11 @@ Each data point stores **measurement time** (`created_date`, editable), **upload
 
 ### Alerts
 
-- **Email alerts** (`MonitorAlertEmail`) per monitor: trigger on a boolean **condition** (variable `value`, e.g. `value > 42`), on **no data**, or both.
-- Alerts fire and reset on new data (via `post_save` on `MonitorData`); recipients come from site customization plus optional per-alert addresses.
-- **Alert log** on the monitor and in Django admin; REST API for logs and alert definitions.
+- **Email alerts** (`MonitorAlertEmail`) per monitor and optional **data entry field**: trigger on a boolean **condition** (variable `value`, e.g. `value > 42`), on **no data** for that field, or both. **Staff** configure rules on each monitor’s **Alerts** tab (also Django admin and REST API `monitors/monitor_alert_emails`).
+- Recipients are set **per alert** (comma-separated emails on each rule).
+- Alerts fire and reset when matching data is saved (`post_save` on `MonitorData`, including after multi-field `bulk_create`).
+- **Alert log** on each monitor’s **Alerts** tab; Django admin and REST API for logs. Category dashboard tiles do not aggregate alert history.
+- Live alarm state (`triggered_on`, red monitor rows) clears only when new data satisfies the alert rule or relevant data is removed—not via the log UI.
 
 ### REST API
 
@@ -57,7 +59,6 @@ Filters follow the same patterns as other NEMO model APIs.
 
 Under NEMO **Customization → Monitor data** (`monitors`):
 
-- **Monitor alert email(s)** — default recipients for all email alerts.
 - **Default date range** — last 24 hours, 72 hours, week, month, or year on chart/data views.
 - **Default refresh rate** — optional auto-refresh interval for live charts.
 
@@ -95,6 +96,7 @@ pip install ".[NEMO]"      # or ".[NEMO-CE]"
 |------------|-----|
 | View dashboard, charts, data, alert logs | Any authenticated user |
 | Add, edit, delete **data points**; CSV upload; upload hub; quick add | Users/groups with **`monitors.upload_monitor_data`** (“Can upload monitor data”) |
+| Configure **email alerts** on a monitor | **Staff** (`is_staff`) on the monitor **Alerts** tab |
 | Create, edit, delete **monitor definitions** and data entry fields | **Staff** (`is_staff`) via web UI or Django admin |
 
 Assign `upload_monitor_data` in Django admin under Auth → Users / Groups → Permissions.
@@ -112,7 +114,9 @@ Paths are relative to your NEMO site root.
 | Monitor detail (default: chart) | `/monitor_details/<monitor_id>/` |
 | Chart / data / alert / upload tab | `/monitor_details/<monitor_id>/chart/`, `.../data/`, `.../alert/`, `.../upload/` |
 | Chart/table JSON | `/monitor_chart_data/<monitor_id>/` |
-| Alert log JSON | `/monitor_alert_log/<monitor_id>/` |
+| Alert log (partial HTML) | `/monitor_alert_log/<monitor_id>/` |
+| Save email alert (staff) | `/monitor/<monitor_id>/alert/save/`, `/monitor/<monitor_id>/alert/<alert_id>/save/` |
+| Delete email alert (staff) | `/monitor/<monitor_id>/alert/<alert_id>/delete/` |
 | Export CSV | `/export_monitor_data/<monitor_id>/` |
 | Add data point | `/monitor/<monitor_id>/data/add/` |
 | Upload CSV | `/monitor/<monitor_id>/data/upload_csv/` |

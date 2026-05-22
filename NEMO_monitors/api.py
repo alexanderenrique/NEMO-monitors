@@ -65,7 +65,6 @@ class MonitorViewSet(ModelViewSet):
         "name": string_filters,
         "visible": boolean_filters,
         "tool": key_filters,
-        "data_unit_label": string_filters,
         "last_read": datetime_filters,
         "last_value": number_filters,
     }
@@ -99,7 +98,8 @@ class MonitorAlertEmailViewSet(ModelViewSet):
         "trigger_no_data": boolean_filters,
         "trigger_condition": string_filters,
         "triggered_on": datetime_filters,
-        "additional_emails": string_filters,
+        "column": key_filters,
+        "recipient_emails": string_filters,
     }
 
 

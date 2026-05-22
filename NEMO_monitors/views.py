@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Set, Tuple
 
 from django.contrib import messages
+from django.core.exceptions import ValidationError
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import login_required, permission_required
 from django.db import transaction
@@ -34,9 +35,15 @@ from NEMO.utilities import (
 
 from NEMO_monitors.customizations import MonitorCustomization
 from NEMO_monitors.html_utils import normalize_description_links
+from NEMO_monitors.control_limits import compute_control_limits
+from NEMO_monitors.alerts import process_alerts_after_bulk_create, process_alerts_for_monitor_data
 from NEMO_monitors.models import (
+    CONTROL_LIMITS_FIXED,
+    CONTROL_LIMITS_NONE,
+    CONTROL_LIMITS_STATISTICAL,
     DEFAULT_DATA_ENTRY_FIELDS,
     Monitor,
+    MonitorAlertEmail,
     MonitorAlertLog,
     MonitorColumn,
     MonitorData,
@@ -52,13 +59,46 @@ def _monitor_uses_legacy_notes(monitor: Monitor) -> bool:
     return not monitor.columns.filter(name__iexact="notes").exists()
 
 
+def _parse_optional_float(value: str) -> Optional[float]:
+    value = (value or "").strip()
+    if not value:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+def _normalize_control_limits_mode(mode: str, data_type: str) -> str:
+    mode = (mode or "").strip()
+    if data_type == "string" or mode not in (CONTROL_LIMITS_STATISTICAL, CONTROL_LIMITS_FIXED):
+        return CONTROL_LIMITS_NONE
+    return mode
+
+
 def _data_entry_fields_for_form(monitor: Optional[Monitor]) -> List[dict]:
     if monitor:
         return [
-            {"name": col.name, "data_type": col.data_type, "unit_label": col.unit_label or ""}
+            {
+                "name": col.name,
+                "data_type": col.data_type,
+                "unit_label": col.unit_label or "",
+                "control_limits_mode": col.control_limits_mode or CONTROL_LIMITS_NONE,
+                "fixed_limit_min": col.fixed_limit_min,
+                "fixed_limit_max": col.fixed_limit_max,
+            }
             for col in monitor.columns.order_by("order", "name")
         ]
-    return [{"name": name, "data_type": data_type} for name, data_type in DEFAULT_DATA_ENTRY_FIELDS]
+    return [
+        {
+            "name": name,
+            "data_type": data_type,
+            "control_limits_mode": CONTROL_LIMITS_NONE,
+            "fixed_limit_min": None,
+            "fixed_limit_max": None,
+        }
+        for name, data_type in DEFAULT_DATA_ENTRY_FIELDS
+    ]
 
 CSV_DATETIME_FORMATS = [
     "%Y-%m-%d %H:%M:%S",
@@ -75,6 +115,14 @@ CSV_DATETIME_FORMATS = [
 
 def _can_upload(user) -> bool:
     return user.is_authenticated and user.has_perm(UPLOAD_PERMISSION)
+
+
+def _can_edit_monitor(user) -> bool:
+    return user.is_authenticated and user.is_staff
+
+
+def _alert_log_queryset():
+    return MonitorAlertLog.objects.select_related("monitor", "monitor__tool", "column")
 
 
 def _post_add_data_redirect(request, monitor: Monitor) -> str:
@@ -273,22 +321,12 @@ def _monitors_dashboard_context(category_path: Optional[str] = None) -> Dict:
     ]
     if category_path:
         tools_with_monitors = _tools_at_category(category_path)
-        monitor_filter = Monitor.objects.filter(
-            visible=True,
-            tool__in=_tools_with_visible_monitors().filter(_tool_in_category_subtree_filter(category_path)),
-        )
     else:
         tools_with_monitors = _uncategorized_tools_with_monitors()
-        monitor_filter = Monitor.objects.filter(visible=True)
-    alert_logs = (
-        MonitorAlertLog.objects.filter(monitor__in=monitor_filter)
-        .select_related("monitor", "monitor__tool")[:30]
-    )
     return {
         "selected_category": selected_category,
         "categories": categories,
         "tools_with_monitors": tools_with_monitors,
-        "alert_logs": alert_logs,
     }
 
 
@@ -344,7 +382,6 @@ def monitors_upload_hub(request):
 def monitors_for_tool(request, tool_id):
     tool = get_object_or_404(Tool, pk=tool_id)
     monitor_list = tool.monitors.filter(visible=True).order_by("name").prefetch_related("columns")
-    alert_logs = MonitorAlertLog.objects.filter(monitor__in=monitor_list)[:30]
     monitors_columns = {
         m.id: [
             {"id": col.id, "name": col.name, "data_type": col.data_type}
@@ -356,7 +393,6 @@ def monitors_for_tool(request, tool_id):
         "tool": tool,
         "tool_category": _category_navigation((tool.category or "").strip() or None),
         "monitors": monitor_list,
-        "alert_logs": alert_logs,
         "can_upload": _can_upload(request.user),
         "add_data_action_template": reverse("add_monitor_data", args=[0]),
         "monitors_columns_json": json.dumps(monitors_columns),
@@ -371,6 +407,7 @@ def monitor_details(request, monitor_id, tab: str = None):
     chart_step = int(request.GET.get("chart_step", 1))
     monitor_data, start, end = get_monitor_data(request, monitor)
     earliest, latest = _monitor_data_date_bounds(monitor)
+    plottable_columns = [col for col in monitor.columns.order_by("order", "name") if col.is_plottable()]
     dictionary = {
         "tab": tab or "chart",
         "monitor": monitor,
@@ -380,6 +417,14 @@ def monitor_details(request, monitor_id, tab: str = None):
         "end": end,
         "chart_step": chart_step,
         "can_upload": _can_upload(request.user),
+        "can_configure_alerts": _can_edit_monitor(request.user),
+        "monitor_alerts": (
+            MonitorAlertEmail.objects.filter(monitor=monitor).select_related("column").order_by("id")
+            if _can_edit_monitor(request.user)
+            else []
+        ),
+        "plottable_columns": plottable_columns,
+        "has_defined_columns": monitor.columns.exists(),
         "data_earliest_unix": int(earliest.timestamp()) if earliest else None,
         "data_latest_unix": int(latest.timestamp()) if latest else None,
     }
@@ -440,10 +485,15 @@ def monitor_chart_data(request, monitor_id):
 
     if defined_columns:
         # Multi-column mode: group data by column
-        col_meta = [
-            {"name": col.name, "type": col.data_type, "unit_label": (col.unit_label or "").strip()}
-            for col in defined_columns
-        ]
+        col_meta = []
+        for col in defined_columns:
+            meta = {
+                "name": col.name,
+                "type": col.data_type,
+                "unit_label": (col.unit_label or "").strip(),
+                "control_limits_mode": col.control_limits_mode or CONTROL_LIMITS_NONE,
+            }
+            col_meta.append(meta)
         series: dict = {col.name: {"labels": [], "data": [], "string_data": [], "ids": [], "notes": [], "created_by": [], "created_on": [], "updated_on": []} for col in defined_columns}
         # Also bucket any orphaned rows (column=None) under a blank key
         series[""] = {"labels": [], "data": [], "string_data": [], "ids": [], "notes": [], "created_by": [], "created_on": [], "updated_on": []}
@@ -469,7 +519,22 @@ def monitor_chart_data(request, monitor_id):
         if not series[""]["ids"]:
             del series[""]
         elif "" not in [c["name"] for c in col_meta]:
-            col_meta.append({"name": "", "type": "float", "unit_label": ""})
+            col_meta.append({"name": "", "type": "float", "unit_label": "", "control_limits_mode": CONTROL_LIMITS_NONE})
+
+        for meta in col_meta:
+            col_name = meta["name"]
+            mode = meta.get("control_limits_mode") or CONTROL_LIMITS_NONE
+            if mode and meta.get("type") != "string":
+                col_obj = next((c for c in defined_columns if c.name == col_name), None)
+                bucket = series.get(col_name, {})
+                limits = compute_control_limits(
+                    bucket.get("data") or [],
+                    mode,
+                    fixed_min=col_obj.fixed_limit_min if col_obj else None,
+                    fixed_max=col_obj.fixed_limit_max if col_obj else None,
+                )
+                if limits:
+                    meta["control_limits"] = limits
 
         # Determine if any data at all
         total_rows = sum(len(b["ids"]) for b in series.values())
@@ -498,7 +563,7 @@ def monitor_chart_data(request, monitor_id):
             updated_on.append(last_edit)
         return JsonResponse(
             data={
-                "columns": [{"name": "", "type": "float", "unit_label": (monitor.data_unit_label or "").strip()}],
+                "columns": [{"name": "", "type": "float", "unit_label": ""}],
                 "series": {
                     "": {
                         "labels": labels,
@@ -530,10 +595,59 @@ def monitor_chart_data(request, monitor_id):
 def monitor_alert_log(request, monitor_id):
     monitor = get_object_or_404(Monitor, pk=monitor_id)
     monitor_data, start, end = get_monitor_data(request, monitor)
-    alert_log_entries = MonitorAlertLog.objects.filter(
+    alert_log_entries = _alert_log_queryset().filter(
         monitor=monitor, time__gte=start, time__lte=end or timezone.now()
     )
     return render(request, "NEMO_monitors/monitor_alerts.html", {"alerts": alert_log_entries})
+
+
+def _alert_config_redirect(monitor_id: int):
+    return HttpResponseRedirect(reverse("monitor_details", args=[monitor_id, "alert"]))
+
+
+@login_required
+@staff_member_required
+@require_POST
+def save_monitor_alert(request, monitor_id, alert_id=None):
+    monitor = get_object_or_404(Monitor, pk=monitor_id)
+    if alert_id:
+        alert = get_object_or_404(MonitorAlertEmail, pk=alert_id, monitor=monitor)
+    else:
+        alert = MonitorAlertEmail(monitor=monitor)
+
+    alert.enabled = request.POST.get("enabled") == "1"
+    alert.trigger_no_data = request.POST.get("trigger_no_data") == "1"
+    condition = (request.POST.get("trigger_condition") or "").strip()
+    alert.trigger_condition = condition or None
+    recipient_raw = (request.POST.get("recipient_emails") or "").strip()
+    alert.recipient_emails = [email.strip() for email in recipient_raw.split(",") if email.strip()]
+
+    column_id = (request.POST.get("column_id") or "").strip()
+    if column_id:
+        alert.column = get_object_or_404(MonitorColumn, pk=column_id, monitor=monitor)
+    else:
+        alert.column = None
+
+    try:
+        alert.full_clean()
+        alert.save()
+        messages.success(request, "Saved email alert.")
+    except ValidationError as exc:
+        for field, errors in exc.error_dict.items():
+            for error in errors:
+                messages.error(request, f"{field}: {error}")
+    return _alert_config_redirect(monitor_id)
+
+
+@login_required
+@staff_member_required
+@require_POST
+def delete_monitor_alert(request, monitor_id, alert_id):
+    monitor = get_object_or_404(Monitor, pk=monitor_id)
+    alert = get_object_or_404(MonitorAlertEmail, pk=alert_id, monitor=monitor)
+    alert.delete()
+    messages.success(request, "Deleted email alert.")
+    return _alert_config_redirect(monitor_id)
 
 
 def get_monitor_data(request, monitor) -> Tuple[QuerySetType[MonitorData], datetime, datetime]:
@@ -633,6 +747,7 @@ def add_monitor_data(request, monitor_id):
 
         created = MonitorData.objects.bulk_create(data_points)
         _refresh_monitor_last_value(monitor)
+        process_alerts_after_bulk_create(monitor, created)
 
         if is_ajax:
             return JsonResponse({"success": True, "ids": [dp.id for dp in created]})
@@ -751,7 +866,8 @@ def _upload_legacy_csv(request, monitor: Monitor, decoded: str):
                     updated_by=request.user,
                 )
             )
-        MonitorData.objects.bulk_create(created)
+        bulk_created = MonitorData.objects.bulk_create(created)
+        process_alerts_after_bulk_create(monitor, bulk_created)
 
     _refresh_monitor_last_value(monitor)
     messages.success(request, f"Uploaded {len(rows)} data points to {monitor.name}.")
@@ -840,7 +956,7 @@ def _upload_multi_column_csv(request, monitor: Monitor, decoded: str):
         return HttpResponseRedirect(reverse("monitor_details", args=[monitor_id, "upload"]))
 
     with transaction.atomic():
-        MonitorData.objects.bulk_create([
+        bulk_created = MonitorData.objects.bulk_create([
             MonitorData(
                 monitor=monitor,
                 column=col,
@@ -852,6 +968,7 @@ def _upload_multi_column_csv(request, monitor: Monitor, decoded: str):
             )
             for timestamp, col, value, string_val in data_rows
         ])
+        process_alerts_after_bulk_create(monitor, bulk_created)
 
     _refresh_monitor_last_value(monitor)
     messages.success(request, f"Uploaded {len(data_rows)} data points to {monitor.name}.")
@@ -952,6 +1069,8 @@ def delete_monitor_data(request, monitor_id, data_id):
         monitor.last_value = None
         monitor.save(update_fields=["last_read", "last_value"])
 
+    process_alerts_for_monitor_data(monitor)
+
     if request.headers.get("x-requested-with") == "XMLHttpRequest":
         return JsonResponse({"success": True})
     messages.success(request, "Deleted data point.")
@@ -989,7 +1108,6 @@ def _monitor_form(request, monitor: Optional[Monitor], tool: Tool):
     error = None
     if request.method == "POST":
         name = (request.POST.get("name") or "").strip()
-        data_unit_label = (request.POST.get("data_unit_label") or "").strip() or None
         raw_description = (request.POST.get("description") or "").strip() or None
         description = normalize_description_links(raw_description) if raw_description else None
         visible = bool(request.POST.get("visible"))
@@ -998,28 +1116,51 @@ def _monitor_form(request, monitor: Optional[Monitor], tool: Tool):
         col_names = request.POST.getlist("column_name[]")
         col_types = request.POST.getlist("column_type[]")
         col_unit_labels = request.POST.getlist("column_unit_label[]")
-        submitted_columns = [
-            (n.strip(), t.strip(), (s or "").strip())
-            for n, t, s in zip(col_names, col_types, col_unit_labels)
-            if n.strip()
-        ]
+        col_limits_modes = request.POST.getlist("column_control_limits_mode[]")
+        col_fixed_mins = request.POST.getlist("column_fixed_min[]")
+        col_fixed_maxs = request.POST.getlist("column_fixed_max[]")
+        submitted_columns = []
+        for index, col_name in enumerate(col_names):
+            col_name = col_name.strip()
+            if not col_name:
+                continue
+            col_type = col_types[index].strip() if index < len(col_types) else "float"
+            col_unit_label = (col_unit_labels[index] if index < len(col_unit_labels) else "").strip()
+            limits_mode = (
+                col_limits_modes[index].strip() if index < len(col_limits_modes) else CONTROL_LIMITS_NONE
+            )
+            limits_mode = _normalize_control_limits_mode(limits_mode, col_type)
+            fixed_min = _parse_optional_float(col_fixed_mins[index] if index < len(col_fixed_mins) else "")
+            fixed_max = _parse_optional_float(col_fixed_maxs[index] if index < len(col_fixed_maxs) else "")
+            if limits_mode == CONTROL_LIMITS_FIXED and fixed_min is None and fixed_max is None:
+                error = f"Field '{col_name}': fixed control limits require at least a minimum or maximum value."
+                break
+            if (
+                limits_mode == CONTROL_LIMITS_FIXED
+                and fixed_min is not None
+                and fixed_max is not None
+                and fixed_min >= fixed_max
+            ):
+                error = f"Field '{col_name}': fixed minimum must be less than fixed maximum."
+                break
+            submitted_columns.append(
+                (col_name, col_type, col_unit_label, limits_mode, fixed_min, fixed_max)
+            )
 
         if not name:
             error = "Monitor name is required."
-        else:
+        elif not error:
             if monitor is None:
                 monitor = Monitor.objects.create(
                     name=name,
                     tool=tool,
                     visible=visible,
-                    data_unit_label=data_unit_label,
                     description=description,
                 )
                 messages.success(request, f"Created monitor '{monitor.name}'.")
             else:
                 monitor.name = name
                 monitor.visible = visible
-                monitor.data_unit_label = data_unit_label
                 monitor.description = description
                 monitor.save()
                 messages.success(request, f"Updated monitor '{monitor.name}'.")
@@ -1039,15 +1180,18 @@ def _monitor_form(request, monitor: Optional[Monitor], tool: Tool):
     return render(request, "NEMO_monitors/monitor_form.html", dictionary)
 
 
-def _sync_monitor_columns(request, monitor: Monitor, submitted_columns: List[Tuple[str, str, str]]):
+def _sync_monitor_columns(
+    request, monitor: Monitor, submitted_columns: List[Tuple[str, str, str, str, Optional[float], Optional[float]]]
+):
     """
-    Sync MonitorColumn records to match submitted_columns (list of (name, data_type, unit_label)).
+    Sync MonitorColumn records to match submitted_columns
+    (name, data_type, unit_label, control_limits_mode, fixed_limit_min, fixed_limit_max).
     Data entry fields removed from the form are deleted; data points that referenced them become orphaned
     (column FK set to null). A warning is shown when orphaned rows exist.
     """
     valid_types = {choice[0] for choice in MonitorColumn._meta.get_field("data_type").choices}
     existing = {col.name.lower(): col for col in monitor.columns.all()}
-    submitted_names_lower = {n.lower() for n, _, _ in submitted_columns}
+    submitted_names_lower = {n.lower() for n, _, _, _, _, _ in submitted_columns}
 
     # Delete removed columns (warn if they have data)
     for lower_name, col in existing.items():
@@ -1061,9 +1205,15 @@ def _sync_monitor_columns(request, monitor: Monitor, submitted_columns: List[Tup
             col.delete()
 
     # Create or update remaining columns
-    for order, (col_name, col_type, col_unit_label) in enumerate(submitted_columns):
+    for order, (col_name, col_type, col_unit_label, limits_mode, fixed_min, fixed_max) in enumerate(
+        submitted_columns
+    ):
         if col_type not in valid_types:
             col_type = "float"
+        limits_mode = _normalize_control_limits_mode(limits_mode, col_type)
+        if limits_mode != CONTROL_LIMITS_FIXED:
+            fixed_min = None
+            fixed_max = None
         col = existing.get(col_name.lower())
         if col:
             if (
@@ -1071,13 +1221,26 @@ def _sync_monitor_columns(request, monitor: Monitor, submitted_columns: List[Tup
                 or col.data_type != col_type
                 or col.order != order
                 or (col.unit_label or "") != col_unit_label
+                or col.control_limits_mode != limits_mode
+                or col.fixed_limit_min != fixed_min
+                or col.fixed_limit_max != fixed_max
             ):
                 col.name = col_name
                 col.data_type = col_type
                 col.order = order
                 col.unit_label = col_unit_label
+                col.control_limits_mode = limits_mode
+                col.fixed_limit_min = fixed_min
+                col.fixed_limit_max = fixed_max
                 col.save()
         else:
             MonitorColumn.objects.create(
-                monitor=monitor, name=col_name, data_type=col_type, order=order, unit_label=col_unit_label
+                monitor=monitor,
+                name=col_name,
+                data_type=col_type,
+                order=order,
+                unit_label=col_unit_label,
+                control_limits_mode=limits_mode,
+                fixed_limit_min=fixed_min,
+                fixed_limit_max=fixed_max,
             )

@@ -80,7 +80,7 @@
                     <a href="#data-tab">Data</a>
                 </li>
                 <li class="{% if tab == 'alert' %}active{% endif %}">
-                    <a href="#alert-tab">Alert log</a>
+                    <a href="#alert-tab">Alerts</a>
                 </li>
                 {% if can_upload %}
                     <li class="{% if tab == 'upload' %}active{% endif %}">
@@ -142,7 +142,14 @@
                     </div>
                 </div>
                 <div class="tab-pane{% if tab == 'alert' %} active{% endif %}" id="alert-tab">
-                    <div id="alert-div" class="panel-body"></div>
+                    <div class="panel-body">
+                        {% if can_configure_alerts %}
+                            {% include "NEMO_monitors/monitor_alert_config.html" %}
+                            <hr />
+                        {% endif %}
+                        <h4>Alert log</h4>
+                        <div id="alert-div"></div>
+                    </div>
                 </div>
                 {% if can_upload %}
                     <div class="tab-pane{% if tab == 'upload' %} active{% endif %}" id="upload-tab">
@@ -366,6 +373,30 @@
             return data.filter((element, index) => {return index % chartStep === 0;});
         }
 
+        function build_xy_pairs(labels, values)
+        {
+            const filteredLabels = filter_every_x_point(labels || []);
+            const filteredValues = filter_every_x_point(values || []);
+            const pairs = [];
+            const len = Math.min(filteredLabels.length, filteredValues.length);
+            for (let i = 0; i < len; i++) {
+                const y = filteredValues[i];
+                if (y === null || y === undefined || y === '') {
+                    continue;
+                }
+                pairs.push({x: filteredLabels[i], y: y});
+            }
+            return pairs;
+        }
+
+        function build_constant_xy_line(labels, yValue)
+        {
+            const filteredLabels = filter_every_x_point(labels || []);
+            return filteredLabels.map(function(label) {
+                return {x: label, y: yValue};
+            });
+        }
+
         // 10-color palette for multi-column series
         const SERIES_COLORS = [
             'rgb(75, 192, 192)',
@@ -382,14 +413,10 @@
 
         const monitorChart = $("#monitor-chart");
         let monitorChartObject = null;
-        const MONITOR_DATA_UNIT_LABEL = '{{ monitor.data_unit_label|default_if_none:""|escapejs }}';
+        const MONITOR_TIME_FORMATS = ['MM/DD/YYYY HH:mm:ss', 'M/D/YYYY HH:mm:ss'];
         function column_unit(col)
         {
-            const unitLabel = (col.unit_label || '').trim();
-            if (unitLabel) {
-                return unitLabel;
-            }
-            return MONITOR_DATA_UNIT_LABEL.trim();
+            return (col.unit_label || '').trim();
         }
 
         function y_axis_title_for_unit(unit)
@@ -414,6 +441,16 @@
             const scales = {
                 x: {
                     type: 'time',
+                    time: {
+                        parser: function(value) {
+                            if (value === null || value === undefined) {
+                                return null;
+                            }
+                            const parsed = moment(value, MONITOR_TIME_FORMATS, true);
+                            return parsed.isValid() ? parsed.valueOf() : moment(value).valueOf();
+                        },
+                        tooltipFormat: 'll LTS',
+                    },
                 }
             };
 
@@ -464,7 +501,7 @@
 
         function build_datasets(data)
         {
-            // data.columns: [{name, type, unit_label?}, ...]
+            // data.columns: [{name, type, unit_label?, control_limits?}, ...]
             // data.series: {colName: {labels, data, ...}, ...}
             const columns = data.columns || [{name: '', type: 'float'}];
             const series = data.series || {'': data};
@@ -478,12 +515,13 @@
                 const label = isLegacy ? '{{ monitor.name|escapejs }}' : col.name;
                 const color = SERIES_COLORS[colorIdx % SERIES_COLORS.length];
                 colorIdx++;
+                const seriesLabels = bucket.labels || [];
                 datasets.push({
                     label: label,
                     borderColor: color,
                     backgroundColor: color,
-                    data: filter_every_x_point(bucket.data || []),
-                    _labels: filter_every_x_point(bucket.labels || []),
+                    data: build_xy_pairs(seriesLabels, bucket.data || []),
+                    _labels: filter_every_x_point(seriesLabels),
                     _col_name: col.name,
                     _unit: column_unit(col),
                     hidden: colorIdx > 1,  // only the first plottable column is visible on load
@@ -492,32 +530,125 @@
             return datasets;
         }
 
+        function build_control_limit_datasets(data, xLabels, seriesDatasets)
+        {
+            const columns = data.columns || [];
+            const series = data.series || {};
+            const visibilityByCol = {};
+            seriesDatasets.forEach(function(ds) {
+                if (!ds._is_limit_line) {
+                    visibilityByCol[ds._col_name] = ds.hidden;
+                }
+            });
+            const limitDatasets = [];
+            const limitStyles = [
+                {key: 'centerline', label: 'Centerline', color: 'rgb(90, 90, 90)'},
+                {key: 'ucl', label: 'UCL', color: 'rgb(255, 140, 0)'},
+                {key: 'lcl', label: 'LCL', color: 'rgb(70, 130, 220)'},
+            ];
+            if (!xLabels || xLabels.length === 0) {
+                return limitDatasets;
+            }
+            columns.forEach(function(col) {
+                const limits = col.control_limits;
+                if (!limits) {
+                    return;
+                }
+                const hidden = visibilityByCol[col.name] === true;
+                const unit = column_unit(col);
+                const prefix = col.name ? col.name + ' ' : '';
+                const bucket = series[col.name] || {};
+                const columnLabels = (bucket.labels && bucket.labels.length) ? bucket.labels : xLabels;
+                limitStyles.forEach(function(style) {
+                    if (limits[style.key] === undefined || limits[style.key] === null) {
+                        return;
+                    }
+                    const lineData = build_constant_xy_line(columnLabels, limits[style.key]);
+                    if (!lineData.length) {
+                        return;
+                    }
+                    limitDatasets.push({
+                        label: prefix + style.label,
+                        borderColor: style.color,
+                        backgroundColor: style.color,
+                        data: lineData,
+                        borderDash: [8, 4],
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        pointHoverRadius: 0,
+                        fill: false,
+                        _col_name: col.name,
+                        _unit: unit,
+                        _is_limit_line: true,
+                        _limit_kind: style.key,
+                        hidden: hidden,
+                    });
+                });
+            });
+            return limitDatasets;
+        }
+
+        function set_column_visibility(chart, colName, visible)
+        {
+            chart.data.datasets.forEach(function(ds) {
+                if (ds._col_name === colName && !ds._is_limit_line) {
+                    ds.hidden = !visible;
+                }
+            });
+        }
+
+        function set_limit_visibility(chart, colName, limitKind, visible)
+        {
+            chart.data.datasets.forEach(function(ds) {
+                if (ds._is_limit_line && ds._col_name === colName && ds._limit_kind === limitKind) {
+                    ds.hidden = !visible;
+                }
+            });
+            chart.update();
+        }
+
+        function append_toggle_checkbox($toggles, id, ds, onChange)
+        {
+            const swatchStyle = ds._is_limit_line
+                ? 'display:inline-block;width:18px;height:0;border-top:2px dashed ' + ds.borderColor + ';margin-right:4px;vertical-align:middle;'
+                : 'display:inline-block;width:12px;height:12px;border-radius:50%;background:' + ds.borderColor + ';margin-right:4px;vertical-align:middle;';
+            const swatch = '<span style="' + swatchStyle + '"></span>';
+            const cb = $('<input type="checkbox" style="margin-right:4px;vertical-align:middle;" />')
+                .prop('checked', !ds.hidden)
+                .attr('id', id)
+                .on('change', onChange);
+            const label = $('<label style="margin-right:12px;font-weight:normal;cursor:pointer;"></label>')
+                .attr('for', id)
+                .append(cb)
+                .append(swatch)
+                .append(document.createTextNode(ds.label));
+            $toggles.append(label);
+        }
+
         function update_column_toggles(datasets)
         {
             const $toggles = $('#column-toggles');
-            if (datasets.length <= 1) {
+            const seriesDatasets = datasets.filter(function(ds) { return !ds._is_limit_line; });
+            const limitDatasets = datasets.filter(function(ds) { return ds._is_limit_line; });
+            if (seriesDatasets.length <= 1 && limitDatasets.length === 0) {
                 $toggles.hide().empty();
                 return;
             }
             $toggles.empty();
-            datasets.forEach(function(ds, idx) {
-                const id = 'toggle-col-' + idx;
-                const dot = '<span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:' + ds.borderColor + ';margin-right:4px;vertical-align:middle;"></span>';
-                const cb = $('<input type="checkbox" style="margin-right:4px;vertical-align:middle;" />')
-                    .prop('checked', !ds.hidden)
-                    .attr('id', id)
-                    .on('change', function() {
-                        if (monitorChartObject) {
-                            monitorChartObject.data.datasets[idx].hidden = !this.checked;
-                            sync_y_axis_visibility(monitorChartObject);
-                        }
-                    });
-                const label = $('<label style="margin-right:12px;font-weight:normal;cursor:pointer;"></label>')
-                    .attr('for', id)
-                    .append(cb)
-                    .append(dot)
-                    .append(document.createTextNode(ds.label));
-                $toggles.append(label);
+            seriesDatasets.forEach(function(ds, idx) {
+                append_toggle_checkbox($toggles, 'toggle-col-' + idx, ds, function() {
+                    if (monitorChartObject) {
+                        set_column_visibility(monitorChartObject, ds._col_name, this.checked);
+                        sync_y_axis_visibility(monitorChartObject);
+                    }
+                });
+            });
+            limitDatasets.forEach(function(ds, idx) {
+                append_toggle_checkbox($toggles, 'toggle-limit-' + idx, ds, function() {
+                    if (monitorChartObject) {
+                        set_limit_visibility(monitorChartObject, ds._col_name, ds._limit_kind, this.checked);
+                    }
+                });
             });
             $toggles.show();
         }
@@ -542,7 +673,9 @@
                 }
             }
 
-            const datasets = build_datasets(data);
+            let datasets = build_datasets(data);
+            const limitDatasets = build_control_limit_datasets(data, allLabels, datasets);
+            datasets = datasets.concat(limitDatasets);
             const chartScales = build_chart_scales(datasets);
             update_column_toggles(datasets);
 
@@ -553,17 +686,22 @@
                 type: 'line',
                 data:
                 {
-                    labels: allLabels,
                     datasets: datasets,
                 },
                 options:
                 {
+                    parsing: true,
                     scales: chartScales,
                     responsive: true,
                     plugins: {
                         legend: {
-                            display: datasets.length > 1,
-                            position: 'top',
+                            display: false,
+                        },
+                        tooltip: {
+                            filter: function(tooltipItem) {
+                                const ds = tooltipItem.chart.data.datasets[tooltipItem.datasetIndex];
+                                return !ds || !ds._is_limit_line;
+                            },
                         },
                         title: {
                             display: true,
@@ -596,7 +734,6 @@
         let _multiColRowData = {};
 
         const LEGACY_VALUE_LABEL = 'Value';
-        const MONITOR_TIME_FORMATS = ['MM/DD/YYYY HH:mm:ss', 'M/D/YYYY HH:mm:ss'];
 
         function compare_monitor_times_desc(a, b)
         {

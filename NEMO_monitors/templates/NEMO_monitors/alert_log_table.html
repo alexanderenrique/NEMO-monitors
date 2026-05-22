@@ -1,0 +1,24 @@
+{% if alerts %}
+    <table class="table table-bordered table-hover table-striped alert-log-table" style="margin-top: 10px;">
+        <thead>
+            <tr class="info">
+                <th>Time</th>
+                <th>Monitor</th>
+                <th>Alert</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for alert in alerts %}
+                <tr class="{% if alert.reset %}success-highlight{% else %}danger-highlight{% endif %}">
+                    <td>{{ alert.time|date:"SHORT_DATETIME_FORMAT" }}</td>
+                    <td>
+                        <a href="{% url 'monitor_details' alert.monitor_id 'alert' %}">{{ alert.monitor.name }}</a>
+                    </td>
+                    <td>{{ alert.description }}</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+{% else %}
+    <i>There are no alerts to display. Try selecting a different date range.</i>
+{% endif %}
