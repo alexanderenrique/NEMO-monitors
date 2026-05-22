@@ -23,11 +23,6 @@ def process_alerts_for_monitor_data(monitor: Monitor, monitor_data: MonitorData 
         alerts_logger.error(e)
 
 
-def process_alerts(monitor: Monitor, monitor_data: MonitorData = None):
-    """Backward-compatible alias for process_alerts_for_monitor_data."""
-    process_alerts_for_monitor_data(monitor, monitor_data)
-
-
 def process_alerts_after_bulk_create(monitor: Monitor, created_rows):
     """Process alerts after bulk_create (which does not fire post_save signals)."""
     if not created_rows:

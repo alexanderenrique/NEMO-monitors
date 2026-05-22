@@ -28,15 +28,6 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 (
-                    "data_unit_label",
-                    models.CharField(
-                        blank=True,
-                        help_text="Default unit label for monitor data values (e.g. PSI, °F, %).",
-                        max_length=255,
-                        null=True,
-                    ),
-                ),
-                (
                     "description",
                     models.TextField(
                         blank=True,
@@ -85,6 +76,32 @@ class Migration(migrations.Migration):
                         default="",
                         help_text="Unit label for this field on the chart y-axis (e.g. A/min, %).",
                         max_length=255,
+                    ),
+                ),
+                (
+                    "control_limits_mode",
+                    models.CharField(
+                        blank=True,
+                        choices=[("", "None"), ("statistical", "Statistical"), ("fixed", "Fixed")],
+                        default="",
+                        help_text="Statistical (3σ) or fixed min/max control limits for chart display.",
+                        max_length=20,
+                    ),
+                ),
+                (
+                    "fixed_limit_min",
+                    models.FloatField(
+                        blank=True,
+                        help_text="Fixed lower control limit when control_limits_mode is fixed.",
+                        null=True,
+                    ),
+                ),
+                (
+                    "fixed_limit_max",
+                    models.FloatField(
+                        blank=True,
+                        help_text="Fixed upper control limit when control_limits_mode is fixed.",
+                        null=True,
                     ),
                 ),
                 (
@@ -189,6 +206,16 @@ class Migration(migrations.Migration):
                 ("condition", models.TextField(blank=True, null=True)),
                 ("no_data", models.BooleanField(default=False)),
                 ("monitor", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="monitors.monitor")),
+                (
+                    "column",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="alert_logs",
+                        to="monitors.monitorcolumn",
+                    ),
+                ),
             ],
             options={
                 "ordering": ["-time"],
@@ -215,15 +242,26 @@ class Migration(migrations.Migration):
                 ),
                 ("triggered_on", models.DateTimeField(blank=True, null=True)),
                 (
-                    "additional_emails",
+                    "recipient_emails",
                     NEMO.fields.MultiEmailField(
                         blank=True,
-                        help_text="Additional email address to contact when this alert is triggered. A comma-separated list can be used.",
+                        help_text="Email address(es) to notify when this alert is triggered or reset. A comma-separated list can be used.",
                         max_length=2000,
                         null=True,
                     ),
                 ),
                 ("monitor", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="monitors.monitor")),
+                (
+                    "column",
+                    models.ForeignKey(
+                        blank=True,
+                        help_text="Numeric data entry field this alert watches. Leave blank for legacy single-value monitors.",
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="alerts",
+                        to="monitors.monitorcolumn",
+                    ),
+                ),
             ],
             options={
                 "abstract": False,

@@ -36,7 +36,7 @@ Each data point stores **measurement time** (`created_date`, editable), **upload
 
 ### Alerts
 
-- **Email alerts** (`MonitorAlertEmail`) per monitor and optional **data entry field**: trigger on a boolean **condition** (variable `value`, e.g. `value > 42`), on **no data** for that field, or both. **Staff** configure rules on each monitor’s **Alerts** tab (also Django admin and REST API `monitors/monitor_alert_emails`).
+- **Email alerts** (`MonitorAlertEmail`) per monitor and optional **data entry field**: trigger on a boolean **condition** (variable `value`, e.g. `value > 42`), on **no data** for that field, or both. **Staff** configure rules on each monitor’s **Alerts** tab (also Django admin and REST API `/api/monitors/monitor_alert_emails/`).
 - Recipients are set **per alert** (comma-separated emails on each rule).
 - Alerts fire and reset when matching data is saved (`post_save` on `MonitorData`, including after multi-field `bulk_create`).
 - **Alert log** on each monitor’s **Alerts** tab; Django admin and REST API for logs. Category dashboard tiles do not aggregate alert history.
@@ -44,16 +44,18 @@ Each data point stores **measurement time** (`created_date`, editable), **upload
 
 ### REST API
 
-Read/write (where applicable) via NEMO’s API router:
+When `NEMO_monitors` is in `INSTALLED_APPS`, `NEMO_monitors/urls.py` registers these view sets on NEMO’s shared DRF router (same mechanism as `tools`, `reservations`, etc.). They are served under the site’s **`/api/`** prefix (trailing slash required), not under the web UI `/monitors/` paths.
 
-| Endpoint | Model |
-|----------|--------|
-| `monitors/monitors` | `Monitor` |
-| `monitors/monitor_data` | `MonitorData` |
-| `monitors/monitor_alert_emails` | `MonitorAlertEmail` |
-| `monitors/monitor_alert_logs` | `MonitorAlertLog` (read-only; Excel export supported) |
+| Path | Model | Access |
+|------|--------|--------|
+| `/api/monitors/monitors/` | `Monitor` | read/write |
+| `/api/monitors/monitor_data/` | `MonitorData` | read/write |
+| `/api/monitors/monitor_alert_emails/` | `MonitorAlertEmail` | read/write |
+| `/api/monitors/monitor_alert_logs/` | `MonitorAlertLog` | read-only; list export as `.xlsx` via `?format=xlsx` (same as other NEMO APIs) |
 
-Filters follow the same patterns as other NEMO model APIs.
+`MonitorColumn` (data entry field definitions) is configured in the web UI and Django admin only; there is no REST resource for it.
+
+Filters and authentication follow the same patterns as other NEMO model APIs.
 
 ### Site customization
 
@@ -90,6 +92,54 @@ Optional extras when installing from source:
 pip install ".[NEMO]"      # or ".[NEMO-CE]"
 ```
 
+### Docker (official NEMO image)
+
+Production Docker installs mount your runtime directory (including `settings.py`) at `/nemo/`. On each container start, NEMO runs [`start_NEMO_in_Docker.sh`](https://github.com/usnistgov/NEMO/blob/master/start_NEMO_in_Docker.sh), which can `pip install` extra packages before `collectstatic`, `migrate`, and gunicorn.
+
+**1. Enable the app in `settings.py`**
+
+Edit the `settings.py` you mount into the container (for example `./nemo/settings.py` on the host) and add the app config to `INSTALLED_APPS`:
+
+```python
+INSTALLED_APPS = [
+    "...",
+    "NEMO_monitors.apps.MonitorsConfig",
+    "...",
+]
+```
+
+**2. Install the package at container start**
+
+Set the `NEMO_EXTRA_PIP_PACKAGES` environment variable so `start_NEMO_in_Docker.sh` installs this plugin when the container starts. The PyPI package name is `NEMO-monitors` (hyphen).
+
+`docker run` example:
+
+```bash
+docker run --detach \
+  --publish 8000:8000 \
+  --volume /path/to/nemo:/nemo \
+  -e NEMO_EXTRA_PIP_PACKAGES="NEMO-monitors" \
+  nanofab/nemo:7.4.1
+```
+
+`docker-compose.yml` example:
+
+```yaml
+services:
+  nemo:
+    image: nanofab/nemo:7.4.1
+    volumes:
+      - ./nemo:/nemo
+    environment:
+      NEMO_EXTRA_PIP_PACKAGES: "NEMO-monitors"
+```
+
+Pin a version if you want reproducible installs, for example `NEMO-monitors==1.0.1`. To install from a local wheel or VCS URL instead of PyPI, put that spec in `NEMO_EXTRA_PIP_PACKAGES` the same way you would for any other pip requirement.
+
+You do not need to edit `start_NEMO_in_Docker.sh` in the image for a normal install; `NEMO_EXTRA_PIP_PACKAGES` is the supported hook. If your site maintains a custom startup script (sometimes named `START_NEMO.sh` or a fork of `start_NEMO_in_Docker.sh`), you can instead add `python3 -m pip install NEMO-monitors` before `collectstatic` / `migrate`, but prefer the env var when using the stock NEMO image. After the container starts, `django-admin migrate` in that script applies the `monitors` migrations automatically. Restart the container after changing `settings.py` or the pip-install configuration.
+
+See also the [NEMO Docker installation wiki](https://github.com/usnistgov/NEMO/wiki/Installation-with-Docker).
+
 ## Permissions
 
 | Capability | Who |
@@ -123,6 +173,10 @@ Paths are relative to your NEMO site root.
 | Edit / delete data point | `/monitor/<monitor_id>/data/<data_id>/edit/`, `.../delete/` |
 | Create monitor (staff) | `/monitor/create/<tool_id>/` |
 | Edit / delete monitor (staff) | `/monitor/<monitor_id>/edit/`, `/monitor/<monitor_id>/delete/` |
+| REST: monitors | `/api/monitors/monitors/` |
+| REST: monitor data | `/api/monitors/monitor_data/` |
+| REST: alert email rules | `/api/monitors/monitor_alert_emails/` |
+| REST: alert log (read-only) | `/api/monitors/monitor_alert_logs/` |
 
 ## CSV upload formats
 
@@ -182,7 +236,7 @@ See [scripts/dev_reinstall.sh](scripts/dev_reinstall.sh) for all options.
 python run_tests.py
 ```
 
-CI (GitLab) runs tests on Python 3.10–3.13 and builds packages on the default branch and tags.
+This creates or updates `test_nemo.db` in the project root (gitignored). Tests use [NEMO_monitors/tests/test_settings.py](NEMO_monitors/tests/test_settings.py) with a minimal NEMO install.
 
 ## Upgrading from NEMO Tool Monitors
 
@@ -191,7 +245,7 @@ CI (GitLab) runs tests on Python 3.10–3.13 and builds packages on the default 
 3. If your database already has `tool_monitors_*` tables, drop and remigrate in development, or run a Django app-rename migration in production before switching app labels.
 4. Re-assign the **`monitors.upload_monitor_data`** permission to users and groups (the codename changes with the app label).
 5. Re-enter site customization values under the **`monitors`** key (settings stored under `tool_monitors` are not read automatically).
-6. Update bookmarks, integrations, and API clients from `/tool_monitors/` to `/monitors/`.
+6. Update bookmarks and integrations: web UI from `/tool_monitors/` to `/monitors/` (and related `/monitor_*` paths above). API clients from `/api/tool_monitors/...` to `/api/monitors/...` (see REST API table).
 
 ## License
 

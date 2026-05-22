@@ -598,7 +598,7 @@ def monitor_alert_log(request, monitor_id):
     alert_log_entries = _alert_log_queryset().filter(
         monitor=monitor, time__gte=start, time__lte=end or timezone.now()
     )
-    return render(request, "NEMO_monitors/monitor_alerts.html", {"alerts": alert_log_entries})
+    return render(request, "NEMO_monitors/alert_log_table.html", {"alerts": alert_log_entries})
 
 
 def _alert_config_redirect(monitor_id: int):

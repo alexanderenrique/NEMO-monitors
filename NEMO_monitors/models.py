@@ -221,7 +221,7 @@ class MonitorData(BaseModel):
 
 @receiver(post_save, sender=MonitorData)
 def monitor_data_post_save(sender, instance: MonitorData, created, **kwargs):
-    from NEMO_monitors.alerts import process_alerts
+    from NEMO_monitors.alerts import process_alerts_for_monitor_data
 
     monitor = instance.monitor
     latest = MonitorData.objects.filter(monitor=monitor, value__isnull=False).order_by("-created_date").first()
@@ -229,8 +229,6 @@ def monitor_data_post_save(sender, instance: MonitorData, created, **kwargs):
         monitor.last_read = latest.created_date
         monitor.last_value = latest.value
         monitor.save(update_fields=["last_read", "last_value"])
-    from NEMO_monitors.alerts import process_alerts_for_monitor_data
-
     process_alerts_for_monitor_data(monitor, instance)
 
 
