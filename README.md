@@ -34,6 +34,22 @@ Monitors with **no** data entry fields use the older **single numeric value** mo
 
 Each data point stores **measurement time** (`created_date`, editable), **upload time** (`created_on`), **created_by** / **updated_by**, and value(s) per column.
 
+### Control limits (chart display)
+
+On monitors with **data entry fields**, staff can enable optional control-limit lines per **numeric** field (float or integer) when creating or editing the monitor. Limits are drawn on the chart only; they do **not** trigger email alerts, change alarm state, or appear in the alert log. Alerting uses separate **email alert** rules on the Alerts tab.
+
+| Mode | Behavior |
+|------|----------|
+| **None** (default) | No limit lines. |
+| **3σ (statistical)** | **Centerline** = mean of numeric points in the chart’s current date range. **UCL** and **LCL** = mean ± 3× sample standard deviation (`statistics.stdev`). Requires at least **two** numeric points in that range; otherwise no lines are shown. If all values are identical, UCL, centerline, and LCL coincide. |
+| **Fixed** | Horizontal **LCL** and/or **UCL** from staff-defined minimum and/or maximum values (at least one required). No centerline. These values do not change when the date range changes. |
+
+**Date range:** Statistical limits are recomputed from whatever data is loaded for the chart—i.e. the same **start/end** filter as the series (site default range or the range the user selects). Changing the range can move or hide statistical lines. Fixed limits are constant regardless of range.
+
+**Chart appearance:** Limit lines are dashed (centerline gray, UCL orange, LCL blue) and follow the visibility of their data series. String fields cannot have control limits.
+
+Legacy monitors (single numeric value, no data entry fields) do not support per-field control limits.
+
 ### Alerts
 
 - **Email alerts** (`MonitorAlertEmail`) per monitor and optional **data entry field**: trigger on a boolean **condition** (variable `value`, e.g. `value > 42`), on **no data** for that field, or both. **Staff** configure rules on each monitor’s **Alerts** tab (also Django admin and REST API `/api/monitors/monitor_alert_emails/`).
