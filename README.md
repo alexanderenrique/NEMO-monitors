@@ -25,7 +25,7 @@ Monitors with **no** data entry fields use the older **single numeric value** mo
 ### Data entry and charts
 
 - **Chart**, **Data**, **Alert**, and **Upload** tabs on each monitor (`/monitor_details/<id>/` and `/monitor_details/<id>/<tab>/`).
-- **Chart.js** time-series charts with a configurable date range (site customization) and optional auto-refresh. Multi-field monitors plot each numeric field as its own series; string fields appear in the data table but not on the chart.
+- **Chart.js** time-series charts with a configurable date range (site customization). Multi-field monitors plot each numeric field as its own series; string fields appear in the data table but not on the chart.
 - **Data tab**: sortable table with inline edit/delete for users with upload permission.
 - **Upload tab**: single-point form and CSV upload (file or paste).
 - **Quick add** on the per-tool page (AJAX) when the user has upload permission.
@@ -78,7 +78,6 @@ Filters and authentication follow the same patterns as other NEMO model APIs.
 Under NEMO **Customization → Monitor data** (`monitors`):
 
 - **Default date range** — last 24 hours, 72 hours, week, month, or year on chart/data views.
-- **Default refresh rate** — optional auto-refresh interval for live charts.
 
 ## Installation
 
@@ -150,7 +149,7 @@ services:
       NEMO_EXTRA_PIP_PACKAGES: "NEMO-monitors"
 ```
 
-Pin a version if you want reproducible installs, for example `NEMO-monitors==1.0.1`. To install from a local wheel or VCS URL instead of PyPI, put that spec in `NEMO_EXTRA_PIP_PACKAGES` the same way you would for any other pip requirement.
+Pin a version if you want reproducible installs, for example `NEMO-monitors==1.0.2`. To install from a local wheel or VCS URL instead of PyPI, put that spec in `NEMO_EXTRA_PIP_PACKAGES` the same way you would for any other pip requirement.
 
 You do not need to edit `start_NEMO_in_Docker.sh` in the image for a normal install; `NEMO_EXTRA_PIP_PACKAGES` is the supported hook. If your site maintains a custom startup script (sometimes named `START_NEMO.sh` or a fork of `start_NEMO_in_Docker.sh`), you can instead add `python3 -m pip install NEMO-monitors` before `collectstatic` / `migrate`, but prefer the env var when using the stock NEMO image. After the container starts, `django-admin migrate` in that script applies the `monitors` migrations automatically. Restart the container after changing `settings.py` or the pip-install configuration.
 

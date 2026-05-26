@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Unused `process_alerts()` alias and redundant import in `MonitorData` post-save handler.
 - `monitor_alerts.html` wrapper template (alert log partial rendered directly).
 
+## [1.0.2] - 2026-05-26
+
+### Removed
+
+- Default refresh rate site customization option (Customization → Monitor data).
+
 ## [1.0.1] - 2026-05-22
 
 ### Changed
@@ -33,7 +39,7 @@ First PyPI release of **NEMO-monitors**, replacing the earlier **NEMO Tool Monit
 - **Monitor definitions** per tool: name, visibility, HTML description, and configurable **data entry fields** (`MonitorColumn`: float, integer, string) with optional unit labels; legacy single-value monitors without fields remain supported.
 - **Detail tabs** per monitor: Chart.js time-series charts, sortable data table with inline edit/delete, CSV/single-point upload, and staff-configured **email alerts**.
 - **Alert rules** per monitor and optional field: threshold expressions, no-data detection, per-rule recipients, trigger/reset on save, and alert log history.
-- **Upload hub**, CSV export, and site customization defaults (date range and chart refresh) under Customization → Monitor data.
+- **Upload hub**, CSV export, and site customization default date range under Customization → Monitor data.
 - **REST API** under `/api/monitors/` for monitors, monitor data, alert email rules, and read-only alert logs (including `.xlsx` export).
 - **Django admin** support: duplicate monitor, bulk show/hide, inline data entry fields.
 - Permission **`monitors.upload_monitor_data`** for data entry; staff manage monitor definitions and alert configuration.
@@ -46,6 +52,7 @@ First PyPI release of **NEMO-monitors**, replacing the earlier **NEMO Tool Monit
 - API paths moved from `/api/tool_monitors/...` to `/api/monitors/...`.
 - Site customization key changed from `tool_monitors` to `monitors` (re-enter settings after upgrade).
 
-[Unreleased]: https://github.com/alexanderenrique/NEMO-monitors/compare/1.0.1...HEAD
+[Unreleased]: https://github.com/alexanderenrique/NEMO-monitors/compare/1.0.2...HEAD
+[1.0.2]: https://github.com/alexanderenrique/NEMO-monitors/compare/1.0.1...1.0.2
 [1.0.1]: https://github.com/alexanderenrique/NEMO-monitors/releases/tag/1.0.1
 [1.0.0]: https://github.com/alexanderenrique/NEMO-monitors/releases/tag/1.0.0

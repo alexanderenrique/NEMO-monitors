@@ -6,5 +6,4 @@ from NEMO.views.customization import CustomizationBase
 class MonitorCustomization(CustomizationBase):
     variables = {
         "monitor_default_daterange": "last_year",
-        "monitor_default_refresh_rate": "0",
     }

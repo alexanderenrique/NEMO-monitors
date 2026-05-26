@@ -46,19 +46,6 @@
                 </div>
             </div>
         </div>
-        <div class="form-group">
-            <label class="control-label col-md-3" for="refresh-rate">Default refresh rate:</label>
-            <div class="col-md-3">
-                <select class="form-control" name="monitor_default_refresh_rate" id="refresh-rate">
-                    <option value="" {% if not monitor_default_refresh_rate %}selected{% endif %}>no refresh</option>
-                    <option value="1000" {% if monitor_default_refresh_rate == "1000" %}selected{% endif %}>every second</option>
-                    <option value="5000" {% if monitor_default_refresh_rate == "5000" %}selected{% endif %}>every 5 seconds</option>
-                    <option value="30000" {% if monitor_default_refresh_rate == "30000" %}selected{% endif %}>every 30 seconds</option>
-                    <option value="60000" {% if monitor_default_refresh_rate == "60000" %}selected{% endif %}>every minute</option>
-                    <option value="300000" {% if monitor_default_refresh_rate == "300000" %}selected{% endif %}>every 5 minutes</option>
-                </select>
-            </div>
-        </div>
         <div class="text-center">{% button type="save" value="Save settings" %}</div>
     </form>
 </div>
