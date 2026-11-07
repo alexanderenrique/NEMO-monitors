@@ -34,6 +34,7 @@ INSTALLED_APPS = [
     "django.contrib.humanize",
     "NEMO_monitors.apps.MonitorsConfig",
     "NEMO",
+    "NEMO.apps.nemo_ce",
     "rest_framework",
     "django_filters",
     "mptt",

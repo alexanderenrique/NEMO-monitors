@@ -475,3 +475,13 @@ def display_monitor_value(monitor: Monitor, value: float, column: Optional["Moni
     if column and (column.unit_label or "").strip():
         unit = f" {(column.unit_label or '').strip()}"
     return f"{value}{unit}"
+
+
+def refresh_monitor_last_value(monitor: Monitor) -> None:
+    """Update monitor.last_read / last_value from the latest numeric data point."""
+    monitor.refresh_from_db()
+    latest = MonitorData.objects.filter(monitor=monitor, value__isnull=False).order_by("-created_date").first()
+    if latest:
+        monitor.last_read = latest.created_date
+        monitor.last_value = latest.value
+        monitor.save(update_fields=["last_read", "last_value"])

@@ -7,8 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`/api/monitors/readings/`** — post and list monitor samples as a name-to-value `fields` map (order-independent field names; response includes per-field `ids`). Legacy monitors without data entry fields use `value` / `notes` on the same endpoint.
+- Read-only **`/api/monitors/monitor_columns/`** and `?expand=columns` on `/api/monitors/monitors/` for field discovery by name.
+
 ### Removed
 
+- REST endpoint **`/api/monitors/monitor_data/`** (row-level CRUD). Use `/api/monitors/readings/` for uploads and reads; the web UI still edits individual points via `/monitor/<id>/data/...`.
 - NEMO Sensors demo assets under `resources/` (fixture, icon, systemd units for `manage_sensor_data`).
 - Unused vendored `chart.js` (templates use `chart.min.js` only).
 - Empty `management/` package, GitLab CI config (`.gitlab-ci.yml`), local test database and sample CSV from the repo.

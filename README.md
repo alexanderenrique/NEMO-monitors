@@ -62,16 +62,38 @@ Legacy monitors (single numeric value, no data entry fields) do not support per-
 
 When `NEMO_monitors` is in `INSTALLED_APPS`, `NEMO_monitors/urls.py` registers these view sets on NEMO’s shared DRF router (same mechanism as `tools`, `reservations`, etc.). They are served under the site’s **`/api/`** prefix (trailing slash required), not under the web UI `/monitors/` paths.
 
-| Path | Model | Access |
-|------|--------|--------|
-| `/api/monitors/monitors/` | `Monitor` | read/write |
-| `/api/monitors/monitor_data/` | `MonitorData` | read/write |
+| Path | Model / resource | Access |
+|------|------------------|--------|
+| `/api/monitors/monitors/` | `Monitor` | read/write; expand columns with `?expand=columns` |
+| `/api/monitors/monitor_columns/` | `MonitorColumn` | read-only (field definitions: name, type, order, unit) |
+| `/api/monitors/readings/` | Name-keyed sample | read/write (see below) |
 | `/api/monitors/monitor_alert_emails/` | `MonitorAlertEmail` | read/write |
 | `/api/monitors/monitor_alert_logs/` | `MonitorAlertLog` | read-only; list export as `.xlsx` via `?format=xlsx` (same as other NEMO APIs) |
 
-`MonitorColumn` (data entry field definitions) is configured in the web UI and Django admin only; there is no REST resource for it.
-
 Filters and authentication follow the same patterns as other NEMO model APIs.
+
+#### Readings (`/api/monitors/readings/`)
+
+Post one logical sample as a map of **field name → value**. Key order does not matter; names are matched case-insensitively (optional trailing unit in parentheses, same as CSV upload). Each non-blank field creates one `MonitorData` row.
+
+```json
+POST /api/monitors/readings/
+{
+  "monitor": 11,
+  "created_date": "2026-11-07T18:15:00",
+  "fields": {
+    "Notes": "swapped cylinder",
+    "Cylinder ID": "HF-204",
+    "Weight Remaining": 12.4
+  }
+}
+```
+
+`created_date` is optional (defaults to now). The response echoes `fields` and an `ids` map of field name → created `MonitorData` primary key. A JSON list of the same objects is accepted for bulk create.
+
+`GET /api/monitors/readings/?monitor=11` returns samples grouped by `created_date` (newest first). The `monitor` query parameter is required. Optional `created_date`, `created_date__gte`, `created_date__lte`, `created_date__gt`, and `created_date__lt` filters are supported.
+
+Monitors with **no** data entry fields use legacy shape on the same endpoint: `{"monitor": 11, "value": 42.5, "notes": "optional"}` (response includes a single `id`).
 
 ### Site customization
 
@@ -189,7 +211,8 @@ Paths are relative to your NEMO site root.
 | Create monitor (staff) | `/monitor/create/<tool_id>/` |
 | Edit / delete monitor (staff) | `/monitor/<monitor_id>/edit/`, `/monitor/<monitor_id>/delete/` |
 | REST: monitors | `/api/monitors/monitors/` |
-| REST: monitor data | `/api/monitors/monitor_data/` |
+| REST: monitor columns (read-only) | `/api/monitors/monitor_columns/` |
+| REST: readings (name-keyed samples) | `/api/monitors/readings/` |
 | REST: alert email rules | `/api/monitors/monitor_alert_emails/` |
 | REST: alert log (read-only) | `/api/monitors/monitor_alert_logs/` |
 
@@ -260,7 +283,7 @@ This creates or updates `test_nemo.db` in the project root (gitignored). Tests u
 3. If your database already has `tool_monitors_*` tables, drop and remigrate in development, or run a Django app-rename migration in production before switching app labels.
 4. Re-assign the **`monitors.upload_monitor_data`** permission to users and groups (the codename changes with the app label).
 5. Re-enter site customization values under the **`monitors`** key (settings stored under `tool_monitors` are not read automatically).
-6. Update bookmarks and integrations: web UI from `/tool_monitors/` to `/monitors/` (and related `/monitor_*` paths above). API clients from `/api/tool_monitors/...` to `/api/monitors/...` (see REST API table).
+6. Update bookmarks and integrations: web UI from `/tool_monitors/` to `/monitors/` (and related `/monitor_*` paths above). API clients from `/api/tool_monitors/...` to `/api/monitors/...` (see REST API table). Prefer `/api/monitors/readings/` for uploading samples; `/api/monitors/monitor_data/` has been removed.
 
 ## License
 

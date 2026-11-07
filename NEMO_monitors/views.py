@@ -3,8 +3,6 @@ from __future__ import annotations
 import csv
 import io
 import json
-import re
-import unicodedata
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -33,6 +31,10 @@ from NEMO.utilities import (
     slugify_underscore,
 )
 
+from NEMO_monitors.column_matching import (
+    columns_by_normalized_name,
+    match_field_name_to_monitor_column,
+)
 from NEMO_monitors.customizations import MonitorCustomization
 from NEMO_monitors.html_utils import normalize_description_links
 from NEMO_monitors.control_limits import compute_control_limits
@@ -47,6 +49,7 @@ from NEMO_monitors.models import (
     MonitorAlertLog,
     MonitorColumn,
     MonitorData,
+    refresh_monitor_last_value,
 )
 
 UPLOAD_PERMISSION = "monitors.upload_monitor_data"
@@ -154,63 +157,6 @@ def _parse_input_datetime(raw: str) -> Optional[datetime]:
             return timezone.make_aware(naive, timezone.get_current_timezone())
         except ValueError:
             continue
-    return None
-
-
-def _normalize_monitor_field_label(raw: str) -> str:
-    """Normalize a monitor/CSV field label for comparison (unicode, spaces, case)."""
-    s = unicodedata.normalize("NFKC", (raw or "").strip())
-    s = re.sub(r"[\u00a0\u2000-\u200b\ufeff]", " ", s)
-    return " ".join(s.split()).lower()
-
-
-def _csv_header_inner_looks_like_unit(inner: str) -> bool:
-    """True if parenthetical at end of a header is likely a unit, e.g. (%) or (A/min), not (RIE)."""
-    s = inner.strip().lower()
-    if not s:
-        return False
-    if "%" in s:
-        return True
-    if "/" in s:
-        return True
-    if re.fullmatch(r"[\d\.]+\s*[a-zµμ°/]*|[a-zµμ]\s*\d+", s):
-        return True
-    return False
-
-
-def _strip_trailing_unit_parenthetical(label_norm: str) -> Optional[str]:
-    """If label_norm ends with ' (unit)', return the part before it when unit is recognized."""
-    m = re.search(r"\s+\(([^)]*)\)$", label_norm)
-    if not m:
-        return None
-    inner = m.group(1).strip()
-    if not _csv_header_inner_looks_like_unit(inner):
-        return None
-    return label_norm[: m.start()].strip()
-
-
-def _match_csv_header_to_monitor_column(header: str, by_normalized_name: Dict[str, MonitorColumn]) -> Optional[MonitorColumn]:
-    """
-    Match a CSV column header to a MonitorColumn.
-
-    Handles minor export/format differences vs. defined names: NFC/NFKC unicode, whitespace,
-    and optional trailing '(unit)' segments such as '(%)' or '(A/min)' on the CSV side or on
-    the defined field name.
-    """
-    norm = _normalize_monitor_field_label(header)
-    if not norm:
-        return None
-    if norm in by_normalized_name:
-        return by_normalized_name[norm]
-    stripped = _strip_trailing_unit_parenthetical(norm)
-    if stripped and stripped in by_normalized_name:
-        return by_normalized_name[stripped]
-    for _key, col in by_normalized_name.items():
-        key_stripped = _strip_trailing_unit_parenthetical(_key)
-        if not key_stripped:
-            continue
-        if norm == key_stripped or (stripped and stripped == key_stripped):
-            return col
     return None
 
 
@@ -746,7 +692,7 @@ def add_monitor_data(request, monitor_id):
             return HttpResponseRedirect(_post_add_data_redirect(request, monitor))
 
         created = MonitorData.objects.bulk_create(data_points)
-        _refresh_monitor_last_value(monitor)
+        refresh_monitor_last_value(monitor)
         process_alerts_after_bulk_create(monitor, created)
 
         if is_ajax:
@@ -869,7 +815,7 @@ def _upload_legacy_csv(request, monitor: Monitor, decoded: str):
         bulk_created = MonitorData.objects.bulk_create(created)
         process_alerts_after_bulk_create(monitor, bulk_created)
 
-    _refresh_monitor_last_value(monitor)
+    refresh_monitor_last_value(monitor)
     messages.success(request, f"Uploaded {len(rows)} data points to {monitor.name}.")
     return HttpResponseRedirect(
         _monitor_details_data_redirect_covering_times(monitor.pk, [ts for ts, _, _ in rows])
@@ -880,7 +826,7 @@ def _upload_multi_column_csv(request, monitor: Monitor, decoded: str):
     """Upload handler when the monitor has defined columns."""
     monitor_id = monitor.pk
     columns_qs = monitor.columns.order_by("order", "name")
-    by_normalized_name = {_normalize_monitor_field_label(col.name): col for col in columns_qs}
+    by_normalized_name = columns_by_normalized_name(columns_qs)
 
     reader = csv.reader(io.StringIO(decoded))
     all_rows = [row for row in reader if row and any(cell.strip() for cell in row)]
@@ -899,7 +845,7 @@ def _upload_multi_column_csv(request, monitor: Monitor, decoded: str):
     col_map: List[Optional[MonitorColumn]] = []
     unrecognized = []
     for h in col_headers:
-        col = _match_csv_header_to_monitor_column(h, by_normalized_name) if h else None
+        col = match_field_name_to_monitor_column(h, by_normalized_name) if h else None
         col_map.append(col)
         if h and col is None:
             unrecognized.append(h)
@@ -970,20 +916,11 @@ def _upload_multi_column_csv(request, monitor: Monitor, decoded: str):
         ])
         process_alerts_after_bulk_create(monitor, bulk_created)
 
-    _refresh_monitor_last_value(monitor)
+    refresh_monitor_last_value(monitor)
     messages.success(request, f"Uploaded {len(data_rows)} data points to {monitor.name}.")
     return HttpResponseRedirect(
         _monitor_details_data_redirect_covering_times(monitor_id, [ts for ts, _, _, _ in data_rows])
     )
-
-
-def _refresh_monitor_last_value(monitor: Monitor):
-    monitor.refresh_from_db()
-    latest = MonitorData.objects.filter(monitor=monitor, value__isnull=False).order_by("-created_date").first()
-    if latest:
-        monitor.last_read = latest.created_date
-        monitor.last_value = latest.value
-        monitor.save(update_fields=["last_read", "last_value"])
 
 
 def _looks_like_data_row(row: List[str]) -> bool:
