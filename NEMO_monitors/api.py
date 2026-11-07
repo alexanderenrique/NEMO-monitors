@@ -343,6 +343,9 @@ class MonitorReadingViewSet(ViewSet):
     GET requires ?monitor=<id> and returns samples grouped by created_date.
     """
 
+    # NEMO's DjangoModelPermissions resolves view/add/change/delete from this model.
+    queryset = MonitorData.objects.all()
+
     def list(self, request):
         monitor_param = request.query_params.get("monitor")
         if not monitor_param:

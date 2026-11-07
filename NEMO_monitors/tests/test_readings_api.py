@@ -5,6 +5,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIRequestFactory, force_authenticate
 
 from NEMO.models import Tool, User
+from NEMO.permissions import DjangoModelPermissions
 
 from NEMO_monitors.api import (
     MonitorReadingSerializer,
@@ -206,3 +207,23 @@ class ReadingsViewSetTests(TestCase):
         force_authenticate(get_request, user=self.user)
         response = self.view(get_request)
         self.assertEqual(response.status_code, 400)
+
+    def test_django_model_permissions_resolve_monitor_data(self):
+        """Production uses DjangoModelPermissions, which requires a queryset on the view."""
+        permission = DjangoModelPermissions()
+        view = MonitorReadingViewSet()
+        get_request = self.factory.get(f"/api/monitors/readings/?monitor={self.monitor.pk}")
+        get_request.user = self.user
+        self.assertFalse(permission.has_permission(get_request, view))
+
+        view_perm = Permission.objects.get(codename="view_monitordata")
+        add_perm = Permission.objects.get(codename="add_monitordata")
+        self.user.user_permissions.add(view_perm, add_perm)
+        self.user = User.objects.get(pk=self.user.pk)
+
+        get_request.user = self.user
+        self.assertTrue(permission.has_permission(get_request, view))
+
+        post_request = self.factory.post("/api/monitors/readings/", {}, format="json")
+        post_request.user = self.user
+        self.assertTrue(permission.has_permission(post_request, view))

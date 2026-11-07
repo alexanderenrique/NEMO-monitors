@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-11-07
+
+### Fixed
+
+- Readings API sets a `MonitorData` queryset so NEMO's `DjangoModelPermissions` can resolve view and add permissions on `/api/monitors/readings/`.
+
 ## [1.0.3] - 2026-11-07
 
 ### Added
@@ -60,7 +66,8 @@ First PyPI release of **NEMO-monitors**, replacing the earlier **NEMO Tool Monit
 - API paths moved from `/api/tool_monitors/...` to `/api/monitors/...`.
 - Site customization key changed from `tool_monitors` to `monitors` (re-enter settings after upgrade).
 
-[Unreleased]: https://github.com/alexanderenrique/NEMO-monitors/compare/1.0.3...HEAD
+[Unreleased]: https://github.com/alexanderenrique/NEMO-monitors/compare/1.0.4...HEAD
+[1.0.4]: https://github.com/alexanderenrique/NEMO-monitors/compare/1.0.3...1.0.4
 [1.0.3]: https://github.com/alexanderenrique/NEMO-monitors/compare/1.0.2...1.0.3
 [1.0.2]: https://github.com/alexanderenrique/NEMO-monitors/compare/1.0.1...1.0.2
 [1.0.1]: https://github.com/alexanderenrique/NEMO-monitors/releases/tag/1.0.1

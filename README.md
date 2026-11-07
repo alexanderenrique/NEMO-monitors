@@ -171,7 +171,7 @@ services:
       NEMO_EXTRA_PIP_PACKAGES: "NEMO-monitors"
 ```
 
-Pin a version if you want reproducible installs, for example `NEMO-monitors==1.0.3`. To install from a local wheel or VCS URL instead of PyPI, put that spec in `NEMO_EXTRA_PIP_PACKAGES` the same way you would for any other pip requirement.
+Pin a version if you want reproducible installs, for example `NEMO-monitors==1.0.4`. To install from a local wheel or VCS URL instead of PyPI, put that spec in `NEMO_EXTRA_PIP_PACKAGES` the same way you would for any other pip requirement.
 
 You do not need to edit `start_NEMO_in_Docker.sh` in the image for a normal install; `NEMO_EXTRA_PIP_PACKAGES` is the supported hook. If your site maintains a custom startup script (sometimes named `START_NEMO.sh` or a fork of `start_NEMO_in_Docker.sh`), you can instead add `python3 -m pip install NEMO-monitors` before `collectstatic` / `migrate`, but prefer the env var when using the stock NEMO image. After the container starts, `django-admin migrate` in that script applies the `monitors` migrations automatically. Restart the container after changing `settings.py` or the pip-install configuration.
 

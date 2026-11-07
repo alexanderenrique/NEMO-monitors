@@ -13,7 +13,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-NEMO_PATH="/Users/adenton/Desktop/nemo-ce-alex"
+NEMO_PATH="/Users/adenton/Desktop/NEMO/nemo-ce-alex"
 FORCE_REINSTALL=false
 SKIP_TESTS=true
 SKIP_BUILD=false
