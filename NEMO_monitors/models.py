@@ -88,9 +88,9 @@ class MonitorColumn(BaseModel):
     )
     data_type = models.CharField(
         max_length=20,
-        choices=[("float", "Float"), ("integer", "Integer"), ("string", "String")],
+        choices=[("float", "Number"), ("string", "Text")],
         default="float",
-        help_text="Expected data type for this column.",
+        help_text="Number or text. Numbers are charted and can be used in alerts; text is stored as entered.",
     )
     order = models.PositiveIntegerField(default=0, help_text="Display order on the chart and table.")
     unit_label = models.CharField(
@@ -118,6 +118,7 @@ class MonitorColumn(BaseModel):
     )
 
     def is_plottable(self) -> bool:
+        # "integer" is a legacy value; new fields are number ("float") or text ("string").
         return self.data_type in ("float", "integer")
 
     def clean(self):
@@ -153,7 +154,7 @@ class MonitorColumn(BaseModel):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"{self.monitor.name} – {self.name} ({self.data_type})"
+        return f"{self.monitor.name} – {self.name} ({self.get_data_type_display()})"
 
     class Meta:
         ordering = ["order", "name"]
@@ -311,7 +312,7 @@ class MonitorAlert(BaseModel):
             if self.column.monitor_id != self.monitor_id:
                 raise ValidationError({"column": "The selected field does not belong to this monitor."})
             if not self.column.is_plottable():
-                raise ValidationError({"column": "Alerts can only target numeric fields (float or integer)."})
+                raise ValidationError({"column": "Alerts can only target number fields."})
         if self.trigger_condition:
             value = random.uniform(0, 100)
             try:

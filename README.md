@@ -18,14 +18,14 @@ Requires **NEMO or NEMO-CE ≥ 7.3.0** and **Python ≥ 3.10**.
 
 - Each **monitor** belongs to one tool: name, visibility, and optional **description** (HTML allowed; bare domains in links are normalized to `https://`).
 - **Staff** users can create, edit, and delete monitors from the web UI (`/monitor/create/<tool_id>/`, `/monitor/<id>/edit/`, `/monitor/<id>/delete/`). The same models are available in **Django admin** (duplicate monitor, show/hide bulk actions, inline **data entry fields**).
-- **Data entry fields** (`MonitorColumn`) define what is collected per timestamp: name, type (`float`, `integer`, `string`), display order, and optional **per-field unit label** for chart axes. New monitors default to **Value** (float) and **Notes** (string); fields can be added, renamed, reordered, or removed. Removing a field that still has data **unlinks** those rows (column set to null) and shows a warning.
+- **Data entry fields** (`MonitorColumn`) define what is collected per timestamp: name, type (**Number** or **Text**), display order, and optional **per-field unit label** for chart axes. New monitors default to **Value** (number) and **Notes** (text); fields can be added, renamed, reordered, or removed. Removing a field that still has data **unlinks** those rows (column set to null) and shows a warning. Number fields are stored as `float` and text fields as `string` (older integer fields are treated as numbers).
 
 Monitors with **no** data entry fields use the older **single numeric value** model (one `MonitorData` row per timestamp, optional `notes` on the row).
 
 ### Data entry and charts
 
 - **Chart**, **Data**, **Alert**, and **Upload** tabs on each monitor (`/monitor_details/<id>/` and `/monitor_details/<id>/<tab>/`).
-- **Chart.js** time-series charts with a configurable date range (site customization). Multi-field monitors plot each numeric field as its own series; string fields appear in the data table but not on the chart.
+- **Chart.js** time-series charts with a configurable date range (site customization). Multi-field monitors plot each number field as its own series; text fields appear in the data table but not on the chart.
 - **Data tab**: sortable table with inline edit/delete for users with upload permission.
 - **Upload tab**: single-point form and CSV upload (file or paste).
 - **Quick add** on the per-tool page (AJAX) when the user has upload permission.
@@ -36,7 +36,7 @@ Each data point stores **measurement time** (`created_date`, editable), **upload
 
 ### Control limits (chart display)
 
-On monitors with **data entry fields**, staff can enable optional control-limit lines per **numeric** field (float or integer) when creating or editing the monitor. Limits are drawn on the chart only; they do **not** trigger email alerts, change alarm state, or appear in the alert log. Alerting uses separate **email alert** rules on the Alerts tab.
+On monitors with **data entry fields**, staff can enable optional control-limit lines per **number** field when creating or editing the monitor. Limits are drawn on the chart only; they do **not** trigger email alerts, change alarm state, or appear in the alert log. Alerting uses separate **email alert** rules on the Alerts tab.
 
 | Mode | Behavior |
 |------|----------|
@@ -46,7 +46,7 @@ On monitors with **data entry fields**, staff can enable optional control-limit 
 
 **Date range:** Statistical limits are recomputed from whatever data is loaded for the chart—i.e. the same **start/end** filter as the series (site default range or the range the user selects). Changing the range can move or hide statistical lines. Fixed limits are constant regardless of range.
 
-**Chart appearance:** Limit lines are dashed (centerline gray, UCL orange, LCL blue) and follow the visibility of their data series. String fields cannot have control limits.
+**Chart appearance:** Limit lines are dashed (centerline gray, UCL orange, LCL blue) and follow the visibility of their data series. Text fields cannot have control limits.
 
 Legacy monitors (single numeric value, no data entry fields) do not support per-field control limits.
 
@@ -64,8 +64,7 @@ When `NEMO_monitors` is in `INSTALLED_APPS`, `NEMO_monitors/urls.py` registers t
 
 | Path | Model / resource | Access |
 |------|------------------|--------|
-| `/api/monitors/monitors/` | `Monitor` | read/write; expand columns with `?expand=columns` |
-| `/api/monitors/monitor_columns/` | `MonitorColumn` | read-only (field definitions: name, type, order, unit) |
+| `/api/monitors/monitors/` | `Monitor` | read/write; each monitor includes a short `fields` list (name, type, unit) |
 | `/api/monitors/readings/` | Name-keyed sample | read/write (see below) |
 | `/api/monitors/monitor_alert_emails/` | `MonitorAlertEmail` | read/write |
 | `/api/monitors/monitor_alert_logs/` | `MonitorAlertLog` | read-only; list export as `.xlsx` via `?format=xlsx` (same as other NEMO APIs) |
@@ -74,26 +73,33 @@ Filters and authentication follow the same patterns as other NEMO model APIs.
 
 #### Readings (`/api/monitors/readings/`)
 
-Post one logical sample as a map of **field name → value**. Key order does not matter; names are matched case-insensitively (optional trailing unit in parentheses, same as CSV upload). Each non-blank field creates one `MonitorData` row.
+Post one logical sample with a **monitor** id and field names as top-level keys. Key order does not matter; names are matched case-insensitively (optional trailing unit in parentheses, same as CSV upload). Discover field names from `GET /api/monitors/monitors/<id>/` (`fields`). Each non-blank field creates one `MonitorData` row.
+
+Default monitor (`Value` and `Notes`), same idea as NEMO-sensors:
+
+```json
+POST /api/monitors/readings/
+{ "monitor": 11, "value": 42.5, "notes": "startup" }
+```
+
+Multi-field monitor:
 
 ```json
 POST /api/monitors/readings/
 {
   "monitor": 11,
   "created_date": "2026-11-07T18:15:00",
-  "fields": {
-    "Notes": "swapped cylinder",
-    "Cylinder ID": "HF-204",
-    "Weight Remaining": 12.4
-  }
+  "Notes": "swapped cylinder",
+  "Cylinder ID": "HF-204",
+  "Weight Remaining": 12.4
 }
 ```
 
-`created_date` is optional (defaults to now). The response echoes `fields` and an `ids` map of field name → created `MonitorData` primary key. A JSON list of the same objects is accepted for bulk create.
+`created_date` is optional (defaults to now). The response echoes the field values at the top level and an `ids` map of field name → created `MonitorData` primary key. A JSON list of the same objects is accepted for bulk create. A nested `fields` object is still accepted for older clients.
 
-`GET /api/monitors/readings/?monitor=11` returns samples grouped by `created_date` (newest first). The `monitor` query parameter is required. Optional `created_date`, `created_date__gte`, `created_date__lte`, `created_date__gt`, and `created_date__lt` filters are supported.
+`GET /api/monitors/readings/?monitor=11` returns samples grouped by `created_date` (newest first), in the same flat shape. The `monitor` query parameter is required. Optional `created_date`, `created_date__gte`, `created_date__lte`, `created_date__gt`, and `created_date__lt` filters are supported.
 
-Monitors with **no** data entry fields use legacy shape on the same endpoint: `{"monitor": 11, "value": 42.5, "notes": "optional"}` (response includes a single `id`).
+Monitors with **no** data entry fields use legacy shape on the same endpoint: `{"monitor": 11, "value": 42.5, "notes": "optional"}` (response includes a single `id`). Reserved keys that are never field names: `monitor`, `created_date`, `id`, `ids`, `fields`.
 
 ### Site customization
 
@@ -171,7 +177,7 @@ services:
       NEMO_EXTRA_PIP_PACKAGES: "NEMO-monitors"
 ```
 
-Pin a version if you want reproducible installs, for example `NEMO-monitors==1.0.4`. To install from a local wheel or VCS URL instead of PyPI, put that spec in `NEMO_EXTRA_PIP_PACKAGES` the same way you would for any other pip requirement.
+Pin a version if you want reproducible installs, for example `NEMO-monitors==1.0.5`. To install from a local wheel or VCS URL instead of PyPI, put that spec in `NEMO_EXTRA_PIP_PACKAGES` the same way you would for any other pip requirement.
 
 You do not need to edit `start_NEMO_in_Docker.sh` in the image for a normal install; `NEMO_EXTRA_PIP_PACKAGES` is the supported hook. If your site maintains a custom startup script (sometimes named `START_NEMO.sh` or a fork of `start_NEMO_in_Docker.sh`), you can instead add `python3 -m pip install NEMO-monitors` before `collectstatic` / `migrate`, but prefer the env var when using the stock NEMO image. After the container starts, `django-admin migrate` in that script applies the `monitors` migrations automatically. Restart the container after changing `settings.py` or the pip-install configuration.
 
@@ -211,7 +217,6 @@ Paths are relative to your NEMO site root.
 | Create monitor (staff) | `/monitor/create/<tool_id>/` |
 | Edit / delete monitor (staff) | `/monitor/<monitor_id>/edit/`, `/monitor/<monitor_id>/delete/` |
 | REST: monitors | `/api/monitors/monitors/` |
-| REST: monitor columns (read-only) | `/api/monitors/monitor_columns/` |
 | REST: readings (name-keyed samples) | `/api/monitors/readings/` |
 | REST: alert email rules | `/api/monitors/monitor_alert_emails/` |
 | REST: alert log (read-only) | `/api/monitors/monitor_alert_logs/` |
@@ -283,7 +288,7 @@ This creates or updates `test_nemo.db` in the project root (gitignored). Tests u
 3. If your database already has `tool_monitors_*` tables, drop and remigrate in development, or run a Django app-rename migration in production before switching app labels.
 4. Re-assign the **`monitors.upload_monitor_data`** permission to users and groups (the codename changes with the app label).
 5. Re-enter site customization values under the **`monitors`** key (settings stored under `tool_monitors` are not read automatically).
-6. Update bookmarks and integrations: web UI from `/tool_monitors/` to `/monitors/` (and related `/monitor_*` paths above). API clients from `/api/tool_monitors/...` to `/api/monitors/...` (see REST API table). Prefer `/api/monitors/readings/` for uploading samples; `/api/monitors/monitor_data/` has been removed.
+6. Update bookmarks and integrations: web UI from `/tool_monitors/` to `/monitors/` (and related `/monitor_*` paths above). API clients from `/api/tool_monitors/...` to `/api/monitors/...` (see REST API table). Prefer `/api/monitors/readings/` for uploading samples; `/api/monitors/monitor_data/` and `/api/monitors/monitor_columns/` have been removed.
 
 ## License
 

@@ -1,11 +1,20 @@
 from django.test import SimpleTestCase
 
 from NEMO_monitors.column_matching import (
+    RESERVED_READING_KEYS,
     columns_by_normalized_name,
     match_field_name_to_monitor_column,
     normalize_monitor_field_label,
 )
 from NEMO_monitors.models import MonitorColumn
+
+
+class ReservedReadingKeysTests(SimpleTestCase):
+    def test_reserved_keys_for_flat_readings_api(self):
+        self.assertEqual(
+            RESERVED_READING_KEYS,
+            frozenset({"monitor", "created_date", "id", "ids", "fields"}),
+        )
 
 
 class NormalizeMonitorFieldLabelTests(SimpleTestCase):

@@ -5,7 +5,6 @@ from NEMO.urls import router, sort_urls
 from NEMO_monitors import api, views
 
 router.register(r"monitors/monitors", api.MonitorViewSet)
-router.register(r"monitors/monitor_columns", api.MonitorColumnViewSet)
 router.register(r"monitors/readings", api.MonitorReadingViewSet, basename="monitor-readings")
 router.register(r"monitors/monitor_alert_emails", api.MonitorAlertEmailViewSet)
 router.register(r"monitors/monitor_alert_logs", api.MonitorAlertLogViewSet)

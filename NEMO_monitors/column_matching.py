@@ -8,6 +8,9 @@ from typing import Dict, Optional
 
 from NEMO_monitors.models import MonitorColumn
 
+# Top-level keys that are never treated as data entry field names on a reading.
+RESERVED_READING_KEYS = frozenset({"monitor", "created_date", "id", "ids", "fields"})
+
 
 def normalize_monitor_field_label(raw: str) -> str:
     """Normalize a monitor/CSV field label for comparison (unicode, spaces, case)."""

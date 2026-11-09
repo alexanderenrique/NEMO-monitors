@@ -32,6 +32,7 @@ from NEMO.utilities import (
 )
 
 from NEMO_monitors.column_matching import (
+    RESERVED_READING_KEYS,
     columns_by_normalized_name,
     match_field_name_to_monitor_column,
 )
@@ -84,7 +85,7 @@ def _data_entry_fields_for_form(monitor: Optional[Monitor]) -> List[dict]:
         return [
             {
                 "name": col.name,
-                "data_type": col.data_type,
+                "data_type": "float" if col.data_type == "integer" else col.data_type,
                 "unit_label": col.unit_label or "",
                 "control_limits_mode": col.control_limits_mode or CONTROL_LIMITS_NONE,
                 "fixed_limit_min": col.fixed_limit_min,
@@ -408,7 +409,7 @@ def export_monitor_data(request, monitor_id):
         }
         if has_columns:
             row["column_name"] = data_point.column.name if data_point.column else ""
-            row["column_type"] = data_point.column.data_type if data_point.column else ""
+            row["column_type"] = data_point.column.get_data_type_display() if data_point.column else ""
         table_result.add_row(row)
     response = table_result.to_csv()
     monitor_name = slugify_underscore(f"{monitor.tool.name}_{monitor.name}")
@@ -1061,6 +1062,12 @@ def _monitor_form(request, monitor: Optional[Monitor], tool: Tool):
             col_name = col_name.strip()
             if not col_name:
                 continue
+            if col_name.lower() in RESERVED_READING_KEYS:
+                error = (
+                    f"Field name '{col_name}' is reserved for the readings API "
+                    f"(cannot use: {', '.join(sorted(RESERVED_READING_KEYS))})."
+                )
+                break
             col_type = col_types[index].strip() if index < len(col_types) else "float"
             col_unit_label = (col_unit_labels[index] if index < len(col_unit_labels) else "").strip()
             limits_mode = (

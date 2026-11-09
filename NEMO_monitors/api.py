@@ -12,21 +12,18 @@ from rest_flex_fields.serializers import FlexFieldsSerializerMixin
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
-from rest_framework.serializers import (
-    CharField,
-    DateTimeField,
-    DictField,
-    FloatField,
-    IntegerField,
-    Serializer,
-)
+from rest_framework.serializers import DateTimeField, DictField, IntegerField, Serializer
 from rest_framework.viewsets import ReadOnlyModelViewSet, ViewSet
 
 from NEMO.serializers import ModelSerializer
 from NEMO.views.api import ModelViewSet, boolean_filters, datetime_filters, key_filters, number_filters, string_filters
 
 from NEMO_monitors.alerts import process_alerts_after_bulk_create
-from NEMO_monitors.column_matching import columns_by_normalized_name, match_field_name_to_monitor_column
+from NEMO_monitors.column_matching import (
+    RESERVED_READING_KEYS,
+    columns_by_normalized_name,
+    match_field_name_to_monitor_column,
+)
 from NEMO_monitors.models import (
     Monitor,
     MonitorAlertEmail,
@@ -37,23 +34,21 @@ from NEMO_monitors.models import (
 )
 
 
-class MonitorColumnSerializer(FlexFieldsSerializerMixin, ModelSerializer):
-    class Meta:
-        model = MonitorColumn
-        fields = (
-            "id",
-            "monitor",
-            "name",
-            "data_type",
-            "order",
-            "unit_label",
-            "control_limits_mode",
-            "fixed_limit_min",
-            "fixed_limit_max",
-        )
-        expandable_fields = {
-            "monitor": "NEMO_monitors.api.MonitorSerializer",
+def api_field_type(data_type: str) -> str:
+    """Map stored column data_type to the public API word."""
+    return "text" if data_type == "string" else "number"
+
+
+def monitor_fields_payload(monitor: Monitor) -> List[Dict[str, str]]:
+    """Short field list for monitor discovery (name, type, unit)."""
+    return [
+        {
+            "name": col.name,
+            "type": api_field_type(col.data_type),
+            "unit": col.unit_label or "",
         }
+        for col in monitor.columns.order_by("order", "name")
+    ]
 
 
 class MonitorSerializer(FlexFieldsSerializerMixin, ModelSerializer):
@@ -62,8 +57,12 @@ class MonitorSerializer(FlexFieldsSerializerMixin, ModelSerializer):
         fields = "__all__"
         expandable_fields = {
             "tool": "NEMO.serializers.ToolSerializer",
-            "columns": ("NEMO_monitors.api.MonitorColumnSerializer", {"many": True, "source": "columns"}),
         }
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data["fields"] = monitor_fields_payload(instance)
+        return data
 
 
 class MonitorAlertEmailSerializer(FlexFieldsSerializerMixin, ModelSerializer):
@@ -85,13 +84,15 @@ class MonitorAlertLogSerializer(FlexFieldsSerializerMixin, ModelSerializer):
 
 
 class MonitorReadingSerializer(Serializer):
-    """Name-keyed sample for one monitor at one timestamp."""
+    """
+    Name-keyed sample for one monitor at one timestamp.
+
+    Preferred shape: monitor + field names as top-level keys (order independent).
+    Nested ``fields`` object is still accepted for compatibility with 1.0.3 clients.
+    """
 
     monitor = IntegerField()
     created_date = DateTimeField(required=False, allow_null=True)
-    fields = DictField(required=False)
-    value = FloatField(required=False, allow_null=True)
-    notes = CharField(required=False, allow_blank=True, default="")
     ids = DictField(child=IntegerField(), read_only=True)
     id = IntegerField(read_only=True, required=False)
 
@@ -103,31 +104,41 @@ class MonitorReadingSerializer(Serializer):
             raise ValidationError({"monitor": f"Monitor {monitor_id} does not exist."})
         attrs["_monitor"] = monitor
 
-        has_columns = monitor.columns.exists()
-        fields = attrs.get("fields")
-        has_fields = fields is not None
-        has_value = "value" in attrs and attrs.get("value") is not None
+        initial = self.initial_data
+        if not isinstance(initial, dict):
+            raise ValidationError("Expected an object.")
 
-        if has_columns:
-            if has_value or ("notes" in self.initial_data and not has_fields):
-                raise ValidationError(
-                    {
-                        "fields": "This monitor has data entry fields. Send values in 'fields' keyed by field name."
-                    }
-                )
-            if not has_fields:
-                raise ValidationError({"fields": "This field is required for monitors with data entry fields."})
-            if not isinstance(fields, dict):
+        nested = initial.get("fields", None)
+        used_nested = nested is not None
+        if used_nested:
+            if not isinstance(nested, dict):
                 raise ValidationError({"fields": "Expected an object of field name to value."})
+            field_values: Dict[str, Any] = dict(nested)
         else:
-            if has_fields:
+            field_values = {k: v for k, v in initial.items() if k not in RESERVED_READING_KEYS}
+
+        has_columns = monitor.columns.exists()
+        if has_columns:
+            attrs["_field_values"] = field_values
+        else:
+            if used_nested:
                 raise ValidationError(
                     {
                         "fields": "This monitor has no data entry fields. Send 'value' (and optional 'notes') instead."
                     }
                 )
-            if not has_value:
+            if "value" not in field_values or field_values.get("value") is None:
                 raise ValidationError({"value": "This field is required for monitors without data entry fields."})
+            extra = set(field_values) - {"value", "notes"}
+            if extra:
+                unknown = sorted(extra)[0]
+                raise ValidationError({unknown: f"Unknown key '{unknown}' for a monitor without data entry fields."})
+            try:
+                attrs["value"] = float(field_values["value"])
+            except (TypeError, ValueError, OverflowError):
+                raise ValidationError({"value": f"Expected a number, got {field_values['value']!r}."})
+            notes_raw = field_values.get("notes", "")
+            attrs["notes"] = "" if notes_raw is None else str(notes_raw)
 
         created_date = attrs.get("created_date")
         if created_date is None:
@@ -179,7 +190,7 @@ def _build_multi_column_rows(
     for key, raw in fields.items():
         col = match_field_name_to_monitor_column(str(key), by_normalized)
         if col is None:
-            raise ValidationError({"fields": f"Unknown field '{key}' for monitor '{monitor.name}'."})
+            raise ValidationError({str(key): f"Unknown field '{key}' for monitor '{monitor.name}'."})
         if isinstance(raw, str) and not raw.strip():
             continue
         if raw is None:
@@ -218,9 +229,25 @@ def _build_multi_column_rows(
         name_by_col_pk[str(col.pk)] = col.name
 
     if not data_points:
-        raise ValidationError({"fields": "Please enter at least one data entry field value."})
+        raise ValidationError({"non_field_errors": "Please enter at least one data entry field value."})
 
     return data_points, display_fields, name_by_col_pk
+
+
+def _flat_reading_response(
+    monitor_id: int,
+    created_date: datetime,
+    display_fields: Dict[str, Any],
+    ids: Dict[str, int],
+) -> dict:
+    """Build the public reading dict: monitor, created_date, field names as keys, plus ids."""
+    result: Dict[str, Any] = {
+        "monitor": monitor_id,
+        "created_date": created_date,
+    }
+    result.update(display_fields)
+    result["ids"] = ids
+    return result
 
 
 def _create_reading(validated: dict, user) -> dict:
@@ -229,7 +256,7 @@ def _create_reading(validated: dict, user) -> dict:
 
     if monitor.columns.exists():
         data_points, display_fields, name_by_col_pk = _build_multi_column_rows(
-            monitor, validated["fields"], created_date, user
+            monitor, validated["_field_values"], created_date, user
         )
         with transaction.atomic():
             created = MonitorData.objects.bulk_create(data_points)
@@ -247,12 +274,7 @@ def _create_reading(validated: dict, user) -> dict:
                     else:
                         display_fields[field_name] = row.value
 
-        return {
-            "monitor": monitor.pk,
-            "created_date": created_date,
-            "fields": display_fields,
-            "ids": ids,
-        }
+        return _flat_reading_response(monitor.pk, created_date, display_fields, ids)
 
     notes = (validated.get("notes") or "").strip()
     data_point = MonitorData.objects.create(
@@ -285,7 +307,7 @@ def _display_value_for_point(point: MonitorData) -> Any:
 
 
 def _group_monitor_data_into_readings(points: List[MonitorData]) -> List[dict]:
-    """Pivot MonitorData rows sharing (monitor_id, created_date) into reading dicts."""
+    """Pivot MonitorData rows sharing (monitor_id, created_date) into flat reading dicts."""
     groups: OrderedDict[Tuple[int, datetime], dict] = OrderedDict()
     for point in points:
         key = (point.monitor_id, point.created_date)
@@ -293,7 +315,7 @@ def _group_monitor_data_into_readings(points: List[MonitorData]) -> List[dict]:
             groups[key] = {
                 "monitor": point.monitor_id,
                 "created_date": point.created_date,
-                "fields": OrderedDict(),
+                "display_fields": OrderedDict(),
                 "ids": OrderedDict(),
                 "_has_columns": False,
                 "_legacy_value": None,
@@ -304,7 +326,7 @@ def _group_monitor_data_into_readings(points: List[MonitorData]) -> List[dict]:
         if point.column_id:
             entry["_has_columns"] = True
             name = point.column.name
-            entry["fields"][name] = _display_value_for_point(point)
+            entry["display_fields"][name] = _display_value_for_point(point)
             entry["ids"][name] = point.id
         else:
             entry["_legacy_value"] = point.value
@@ -315,12 +337,12 @@ def _group_monitor_data_into_readings(points: List[MonitorData]) -> List[dict]:
     for entry in groups.values():
         if entry["_has_columns"]:
             readings.append(
-                {
-                    "monitor": entry["monitor"],
-                    "created_date": entry["created_date"],
-                    "fields": dict(entry["fields"]),
-                    "ids": dict(entry["ids"]),
-                }
+                _flat_reading_response(
+                    entry["monitor"],
+                    entry["created_date"],
+                    dict(entry["display_fields"]),
+                    dict(entry["ids"]),
+                )
             )
         else:
             readings.append(
@@ -339,7 +361,8 @@ class MonitorReadingViewSet(ViewSet):
     """
     Name-keyed monitor samples.
 
-    POST one object or a list of objects with monitor + fields (or legacy value/notes).
+    POST one object or a list of objects with monitor plus field names as keys
+    (or a nested fields object). Legacy monitors without data entry fields use value/notes.
     GET requires ?monitor=<id> and returns samples grouped by created_date.
     """
 
@@ -405,7 +428,7 @@ class MonitorReadingViewSet(ViewSet):
 
 class MonitorViewSet(ModelViewSet):
     filename = "monitors"
-    queryset = Monitor.objects.all()
+    queryset = Monitor.objects.prefetch_related("columns").all()
     serializer_class = MonitorSerializer
     filterset_fields = {
         "id": key_filters,
@@ -414,19 +437,6 @@ class MonitorViewSet(ModelViewSet):
         "tool": key_filters,
         "last_read": datetime_filters,
         "last_value": number_filters,
-    }
-
-
-class MonitorColumnViewSet(XLSXFileMixin, ReadOnlyModelViewSet):
-    filename = "monitor_columns"
-    queryset = MonitorColumn.objects.select_related("monitor").all()
-    serializer_class = MonitorColumnSerializer
-    filterset_fields = {
-        "id": key_filters,
-        "monitor": key_filters,
-        "name": string_filters,
-        "data_type": string_filters,
-        "order": number_filters,
     }
 
 

@@ -10,6 +10,7 @@ from NEMO.permissions import DjangoModelPermissions
 from NEMO_monitors.api import (
     MonitorReadingSerializer,
     MonitorReadingViewSet,
+    MonitorSerializer,
     _create_reading,
     _group_monitor_data_into_readings,
 )
@@ -41,7 +42,28 @@ class ReadingsApiHelpersTests(TestCase):
             monitor=self.monitor, name="Notes", data_type="string", order=2
         )
 
-    def test_create_reading_order_independent_field_names(self):
+    def test_create_reading_flat_field_names(self):
+        serializer = MonitorReadingSerializer(
+            data={
+                "monitor": self.monitor.pk,
+                "created_date": "2026-11-07T18:15:00",
+                "Notes": "swapped cylinder",
+                "Cylinder ID": "HF-204",
+                "Weight Remaining": 12.4,
+            }
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        result = _create_reading(serializer.validated_data, self.user)
+
+        self.assertEqual(result["monitor"], self.monitor.pk)
+        self.assertEqual(result["Cylinder ID"], "HF-204")
+        self.assertEqual(result["Weight Remaining"], 12.4)
+        self.assertEqual(result["Notes"], "swapped cylinder")
+        self.assertEqual(set(result["ids"]), {"Cylinder ID", "Weight Remaining", "Notes"})
+        self.assertNotIn("fields", result)
+        self.assertEqual(MonitorData.objects.filter(monitor=self.monitor).count(), 3)
+
+    def test_create_reading_nested_fields_still_accepted(self):
         serializer = MonitorReadingSerializer(
             data={
                 "monitor": self.monitor.pk,
@@ -56,37 +78,37 @@ class ReadingsApiHelpersTests(TestCase):
         self.assertTrue(serializer.is_valid(), serializer.errors)
         result = _create_reading(serializer.validated_data, self.user)
 
-        self.assertEqual(result["monitor"], self.monitor.pk)
-        self.assertEqual(result["fields"]["Cylinder ID"], "HF-204")
-        self.assertEqual(result["fields"]["Weight Remaining"], 12.4)
-        self.assertEqual(result["fields"]["Notes"], "swapped cylinder")
+        self.assertEqual(result["Cylinder ID"], "HF-204")
+        self.assertEqual(result["Weight Remaining"], 12.4)
+        self.assertEqual(result["Notes"], "swapped cylinder")
         self.assertEqual(set(result["ids"]), {"Cylinder ID", "Weight Remaining", "Notes"})
-        self.assertEqual(MonitorData.objects.filter(monitor=self.monitor).count(), 3)
+        self.assertNotIn("fields", result)
 
     def test_case_insensitive_field_names(self):
         serializer = MonitorReadingSerializer(
             data={
                 "monitor": self.monitor.pk,
-                "fields": {"cylinder id": "A-1", "WEIGHT REMAINING": 1},
+                "cylinder id": "A-1",
+                "WEIGHT REMAINING": 1,
             }
         )
         self.assertTrue(serializer.is_valid(), serializer.errors)
         result = _create_reading(serializer.validated_data, self.user)
-        self.assertEqual(result["fields"]["Cylinder ID"], "A-1")
-        self.assertEqual(result["fields"]["Weight Remaining"], 1.0)
+        self.assertEqual(result["Cylinder ID"], "A-1")
+        self.assertEqual(result["Weight Remaining"], 1.0)
 
     def test_unknown_field_returns_validation_error(self):
         serializer = MonitorReadingSerializer(
-            data={"monitor": self.monitor.pk, "fields": {"Temperature": 22}}
+            data={"monitor": self.monitor.pk, "Temperature": 22}
         )
         self.assertTrue(serializer.is_valid(), serializer.errors)
         with self.assertRaises(ValidationError) as ctx:
             _create_reading(serializer.validated_data, self.user)
-        self.assertIn("fields", ctx.exception.detail)
+        self.assertIn("Temperature", ctx.exception.detail)
 
     def test_bad_number_returns_validation_error(self):
         serializer = MonitorReadingSerializer(
-            data={"monitor": self.monitor.pk, "fields": {"Weight Remaining": "not-a-number"}}
+            data={"monitor": self.monitor.pk, "Weight Remaining": "not-a-number"}
         )
         self.assertTrue(serializer.is_valid(), serializer.errors)
         with self.assertRaises(ValidationError) as ctx:
@@ -95,7 +117,7 @@ class ReadingsApiHelpersTests(TestCase):
 
     def test_blank_fields_only_returns_error(self):
         serializer = MonitorReadingSerializer(
-            data={"monitor": self.monitor.pk, "fields": {"Notes": "  ", "Weight Remaining": ""}}
+            data={"monitor": self.monitor.pk, "Notes": "  ", "Weight Remaining": ""}
         )
         self.assertTrue(serializer.is_valid(), serializer.errors)
         with self.assertRaises(ValidationError):
@@ -121,12 +143,27 @@ class ReadingsApiHelpersTests(TestCase):
         self.assertFalse(serializer.is_valid())
         self.assertIn("fields", serializer.errors)
 
-    def test_value_rejected_on_column_monitor(self):
+    def test_unknown_flat_key_on_monitor_without_matching_field(self):
         serializer = MonitorReadingSerializer(
             data={"monitor": self.monitor.pk, "value": 1.0}
         )
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("fields", serializer.errors)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        with self.assertRaises(ValidationError) as ctx:
+            _create_reading(serializer.validated_data, self.user)
+        self.assertIn("value", ctx.exception.detail)
+
+    def test_default_value_notes_fields_as_flat_keys(self):
+        default_monitor = Monitor.objects.create(name="Default fields", tool=self.tool)
+        MonitorColumn.objects.create(monitor=default_monitor, name="Value", data_type="float", order=0)
+        MonitorColumn.objects.create(monitor=default_monitor, name="Notes", data_type="string", order=1)
+        serializer = MonitorReadingSerializer(
+            data={"monitor": default_monitor.pk, "value": 42.5, "notes": "startup"}
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        result = _create_reading(serializer.validated_data, self.user)
+        self.assertEqual(result["Value"], 42.5)
+        self.assertEqual(result["Notes"], "startup")
+        self.assertEqual(set(result["ids"]), {"Value", "Notes"})
 
     def test_group_readings_by_created_date(self):
         ts = timezone.now()
@@ -150,10 +187,22 @@ class ReadingsApiHelpersTests(TestCase):
         ]
         grouped = _group_monitor_data_into_readings(list(reversed(rows)))
         self.assertEqual(len(grouped), 1)
-        self.assertEqual(grouped[0]["fields"]["Cylinder ID"], "HF-1")
-        self.assertEqual(grouped[0]["fields"]["Weight Remaining"], 9.5)
+        self.assertEqual(grouped[0]["Cylinder ID"], "HF-1")
+        self.assertEqual(grouped[0]["Weight Remaining"], 9.5)
         self.assertEqual(grouped[0]["ids"]["Cylinder ID"], rows[0].id)
         self.assertEqual(grouped[0]["ids"]["Weight Remaining"], rows[1].id)
+        self.assertNotIn("fields", grouped[0])
+
+    def test_monitor_serializer_includes_fields_list(self):
+        payload = MonitorSerializer(self.monitor).data
+        self.assertEqual(
+            payload["fields"],
+            [
+                {"name": "Cylinder ID", "type": "text", "unit": ""},
+                {"name": "Weight Remaining", "type": "number", "unit": ""},
+                {"name": "Notes", "type": "text", "unit": ""},
+            ],
+        )
 
 
 class ReadingsViewSetTests(TestCase):
@@ -179,19 +228,19 @@ class ReadingsViewSetTests(TestCase):
             {
                 "monitor": self.monitor.pk,
                 "created_date": "2026-11-07T18:15:00-08:00",
-                "fields": {
-                    "Notes": "ok",
-                    "Weight Remaining": 3.2,
-                    "Cylinder ID": "C-9",
-                },
+                "Notes": "ok",
+                "Weight Remaining": 3.2,
+                "Cylinder ID": "C-9",
             },
             format="json",
         )
         force_authenticate(post_request, user=self.user)
         post_response = self.view(post_request)
         self.assertEqual(post_response.status_code, 201, post_response.data)
-        self.assertEqual(post_response.data["fields"]["Cylinder ID"], "C-9")
+        self.assertEqual(post_response.data["Cylinder ID"], "C-9")
+        self.assertEqual(post_response.data["Weight Remaining"], 3.2)
         self.assertEqual(len(post_response.data["ids"]), 3)
+        self.assertNotIn("fields", post_response.data)
 
         get_request = self.factory.get(
             f"/api/monitors/readings/?monitor={self.monitor.pk}"
@@ -200,7 +249,7 @@ class ReadingsViewSetTests(TestCase):
         get_response = self.view(get_request)
         self.assertEqual(get_response.status_code, 200)
         self.assertEqual(len(get_response.data), 1)
-        self.assertEqual(get_response.data[0]["fields"]["Weight Remaining"], 3.2)
+        self.assertEqual(get_response.data[0]["Weight Remaining"], 3.2)
 
     def test_list_requires_monitor(self):
         get_request = self.factory.get("/api/monitors/readings/")

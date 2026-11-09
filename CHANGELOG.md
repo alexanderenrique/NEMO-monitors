@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-11-09
+
+### Changed
+
+- Data entry field type is **Number** or **Text**. Existing integer fields are stored as numbers. Charting, alerts, and uploads behave as before.
+- **`/api/monitors/readings/`** accepts field names as top-level keys (order independent), matching the simple NEMO-sensors style. Responses use the same flat shape. A nested `fields` object is still accepted for older clients. Discover field names from the `fields` list on each monitor (`GET /api/monitors/monitors/<id>/`).
+
+### Removed
+
+- REST endpoint **`/api/monitors/monitor_columns/`** and `?expand=columns` on monitors. Use the `fields` list on `/api/monitors/monitors/` instead.
+
 ## [1.0.4] - 2026-11-07
 
 ### Fixed
@@ -66,7 +77,8 @@ First PyPI release of **NEMO-monitors**, replacing the earlier **NEMO Tool Monit
 - API paths moved from `/api/tool_monitors/...` to `/api/monitors/...`.
 - Site customization key changed from `tool_monitors` to `monitors` (re-enter settings after upgrade).
 
-[Unreleased]: https://github.com/alexanderenrique/NEMO-monitors/compare/1.0.4...HEAD
+[Unreleased]: https://github.com/alexanderenrique/NEMO-monitors/compare/1.0.5...HEAD
+[1.0.5]: https://github.com/alexanderenrique/NEMO-monitors/compare/1.0.4...1.0.5
 [1.0.4]: https://github.com/alexanderenrique/NEMO-monitors/compare/1.0.3...1.0.4
 [1.0.3]: https://github.com/alexanderenrique/NEMO-monitors/compare/1.0.2...1.0.3
 [1.0.2]: https://github.com/alexanderenrique/NEMO-monitors/compare/1.0.1...1.0.2
